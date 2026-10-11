@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hotdeal.sooinlab.com/sitemap.xml
