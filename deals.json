@@ -1,21 +1,8 @@
 {
  "updatedAt": "2026-10-11T17:45:00+09:00",
- "isSample": true,
- "notice": "2026-10-11 17:45 KST 쿠팡 검색 결과 기준 실제 상품·가격입니다. 링크는 아직 쿠팡 파트너스 링크가 아닌 일반 상품 링크입니다.",
+ "isSample": false,
+ "notice": "2026-10-11 17:45 KST 쿠팡 검색 결과 기준 가격입니다. 링크는 쿠팡 파트너스 링크입니다.",
  "deals": [
-  {
-   "id": "c1",
-   "title": "하기스 보송보송 팬티형 기저귀 공용 5단계 92매",
-   "category": "육아",
-   "originalPrice": 54800,
-   "salePrice": 42000,
-   "image": "",
-   "emoji": "👶",
-   "rocket": true,
-   "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8449829217?itemId=24452365185",
-   "top": true
-  },
   {
    "id": "c2",
    "title": "하기스 보송보송 밴드형 기저귀 남여공용 3단계 112매",
@@ -26,7 +13,7 @@
    "emoji": "👶",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/9335163808?itemId=25211577227",
+   "url": "https://link.coupang.com/a/hLdM8ibTfE",
    "top": false
   },
   {
@@ -39,8 +26,8 @@
    "emoji": "👶",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8660440538?itemId=27955574814",
-   "top": false
+   "url": "https://link.coupang.com/a/hLdLsNHnXg",
+   "top": true
   },
   {
    "id": "c4",
@@ -52,7 +39,7 @@
    "emoji": "🧻",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/188227098?itemId=537550763",
+   "url": "https://link.coupang.com/a/hLdLCFRlyS",
    "top": true
   },
   {
@@ -65,7 +52,7 @@
    "emoji": "🧴",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/4583248357?itemId=5620780687",
+   "url": "https://link.coupang.com/a/hLdNgsBrK8",
    "top": true
   },
   {
@@ -78,20 +65,7 @@
    "emoji": "🧴",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/1473062788?itemId=19169252950",
-   "top": false
-  },
-  {
-   "id": "c7",
-   "title": "닥터지 브라이트닝 업 선 플러스 SPF50+ 35ml x 2개",
-   "category": "뷰티",
-   "originalPrice": 52000,
-   "salePrice": 19080,
-   "image": "",
-   "emoji": "🧴",
-   "rocket": true,
-   "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/7183753856?itemId=18122780459",
+   "url": "https://link.coupang.com/a/hLdLMZWNSm",
    "top": false
   },
   {
@@ -104,7 +78,7 @@
    "emoji": "🎭",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/9072524953?itemId=21044654958",
+   "url": "https://link.coupang.com/a/hLdNxn96lM",
    "top": false
   },
   {
@@ -117,7 +91,7 @@
    "emoji": "🎭",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/9304269585?itemId=14388090680",
+   "url": "https://link.coupang.com/a/hLdNFxPFqC",
    "top": false
   },
   {
@@ -130,7 +104,7 @@
    "emoji": "🎭",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/2032659522?itemId=3456356033",
+   "url": "https://link.coupang.com/a/hLdMg6yZeC",
    "top": false
   },
   {
@@ -143,7 +117,7 @@
    "emoji": "🫧",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8687771994?itemId=25222807981",
+   "url": "https://link.coupang.com/a/hLdOzq5wTQ",
    "top": false
   },
   {
@@ -156,7 +130,7 @@
    "emoji": "🫧",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8512405647?itemId=25832697039",
+   "url": "https://link.coupang.com/a/hLdOI8zxwy",
    "top": true
   },
   {
@@ -169,7 +143,7 @@
    "emoji": "🫧",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8017545584?itemId=22394242894",
+   "url": "https://link.coupang.com/a/hLdOSK7yYC",
    "top": false
   },
   {
@@ -182,7 +156,7 @@
    "emoji": "🐶",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/7299719601?itemId=19815641903",
+   "url": "https://link.coupang.com/a/hLdO01Onhk",
    "top": true
   },
   {
@@ -195,7 +169,7 @@
    "emoji": "🐶",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/7300635644?itemId=18681318710",
+   "url": "https://link.coupang.com/a/hLdO9OBkUS",
    "top": false
   },
   {
@@ -208,7 +182,7 @@
    "emoji": "🐶",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/8466415135?itemId=21085455074",
+   "url": "https://link.coupang.com/a/hLdPhl6F88",
    "top": false
   },
   {
@@ -221,7 +195,7 @@
    "emoji": "🧦",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/1806346903?itemId=3073576081",
+   "url": "https://link.coupang.com/a/hLdPqediea",
    "top": false
   },
   {
@@ -234,7 +208,7 @@
    "emoji": "🧦",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/322623848?itemId=1033411744",
+   "url": "https://link.coupang.com/a/hLdPyUBCWO",
    "top": false
   },
   {
@@ -247,7 +221,7 @@
    "emoji": "🧦",
    "rocket": true,
    "addedAt": "2026-10-11T17:45:00+09:00",
-   "url": "https://www.coupang.com/vp/products/247093177?itemId=782617593",
+   "url": "https://link.coupang.com/a/hLdPGifJEy",
    "top": true
   }
  ]
