@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>오늘의 핫딜 | 매일 골라 담는 쿠팡 특가</title>
+<meta name="description" content="매일 업데이트되는 쿠팡 할인 상품 모음. 카테고리별·할인율순으로 오늘의 핫딜을 확인하세요.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="disclosure" role="note"><strong>광고</strong> 이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.</div>
+<header class="top">
+  <a class="logo" href="index.html">🔥 오늘의<b>핫딜</b></a>
+  <nav><a href="about.html">소개</a><a href="privacy.html">개인정보처리방침</a></nav>
+</header>
+<main class="wrap">
+  <div id="sampleBanner" class="sample" hidden>⚠️ 현재 보이는 상품은 <b>예시 데이터</b>입니다. 가격·할인율·링크는 실제가 아닙니다.</div>
+  <section class="hero">
+    <h1>오늘 놓치면 아까운 특가</h1>
+    <p class="muted" id="updated"></p>
+    <input id="q" type="search" placeholder="상품 검색 (예: 이어폰, 생수)" aria-label="상품 검색">
+  </section>
+  <section>
+    <h2 class="sec">⭐ 오늘의 TOP 딜</h2>
+    <div id="top" class="top-row"></div>
+  </section>
+  <section>
+    <div class="controls">
+      <div id="cats" class="chips" role="tablist"></div>
+      <select id="sort" aria-label="정렬">
+        <option value="discount">할인율 높은순</option>
+        <option value="price">가격 낮은순</option>
+        <option value="new">최신 등록순</option>
+      </select>
+    </div>
+    <div id="grid" class="grid"></div>
+    <p id="empty" class="muted center" hidden>조건에 맞는 상품이 없어요.</p>
+  </section>
+  <!-- AdSense 승인 후 광고 단위를 여기에 넣으세요 -->
+</main>
+<footer class="foot">
+  <p>이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.</p>
+  <p>가격과 재고는 수시로 바뀝니다. 구매 전 쿠팡 상품 페이지에서 꼭 확인하세요.</p>
+  <p><a href="about.html">소개</a> · <a href="privacy.html">개인정보처리방침</a> · © 2026 오늘의핫딜</p>
+</footer>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "updatedAt": "2026-10-11T12:00:00+09:00",
+  "isSample": true,
+  "notice": "예시 데이터입니다. 가격·할인율·링크는 실제가 아닙니다.",
+  "deals": [
+    {"id":"s1","title":"[예시] 무선 노이즈캔슬링 이어폰","category":"디지털","originalPrice":129000,"salePrice":79000,"image":"","emoji":"🎧","rocket":true,"addedAt":"2026-10-11T10:00:00+09:00","url":"#placeholder","top":true},
+    {"id":"s2","title":"[예시] 27인치 QHD 모니터","category":"디지털","originalPrice":329000,"salePrice":239000,"image":"","emoji":"🖥️","rocket":true,"addedAt":"2026-10-10T21:00:00+09:00","url":"#placeholder","top":true},
+    {"id":"s3","title":"[예시] 생수 2L x 12병","category":"식품","originalPrice":12900,"salePrice":8900,"image":"","emoji":"💧","rocket":true,"addedAt":"2026-10-11T08:30:00+09:00","url":"#placeholder","top":false},
+    {"id":"s4","title":"[예시] 견과류 하루한줌 30봉","category":"식품","originalPrice":24900,"salePrice":15900,"image":"","emoji":"🥜","rocket":false,"addedAt":"2026-10-09T12:00:00+09:00","url":"#placeholder","top":true},
+    {"id":"s5","title":"[예시] 3겹 롤화장지 30롤","category":"생활","originalPrice":21900,"salePrice":14900,"image":"","emoji":"🧻","rocket":true,"addedAt":"2026-10-11T07:00:00+09:00","url":"#placeholder","top":false},
+    {"id":"s6","title":"[예시] 드럼세탁기용 액체세제 3L","category":"생활","originalPrice":19800,"salePrice":11900,"image":"","emoji":"🧴","rocket":true,"addedAt":"2026-10-08T15:00:00+09:00","url":"#placeholder","top":false},
+    {"id":"s7","title":"[예시] 기능성 러닝화","category":"패션","originalPrice":89000,"salePrice":49000,"image":"","emoji":"👟","rocket":false,"addedAt":"2026-10-10T18:00:00+09:00","url":"#placeholder","top":true},
+    {"id":"s8","title":"[예시] 경량 패딩 조끼","category":"패션","originalPrice":59000,"salePrice":39000,"image":"","emoji":"🧥","rocket":false,"addedAt":"2026-10-07T11:00:00+09:00","url":"#placeholder","top":false},
+    {"id":"s9","title":"[예시] 에어프라이어 5.5L","category":"가전","originalPrice":99000,"salePrice":64900,"image":"","emoji":"🍟","rocket":true,"addedAt":"2026-10-11T11:00:00+09:00","url":"#placeholder","top":true},
+    {"id":"s10","title":"[예시] 무선 핸디 청소기","category":"가전","originalPrice":159000,"salePrice":119000,"image":"","emoji":"🧹","rocket":true,"addedAt":"2026-10-06T09:00:00+09:00","url":"#placeholder","top":false},
+    {"id":"s11","title":"[예시] 유아 물티슈 100매 x 10팩","category":"육아","originalPrice":18900,"salePrice":12900,"image":"","emoji":"👶","rocket":true,"addedAt":"2026-10-10T09:00:00+09:00","url":"#placeholder","top":false},
+    {"id":"s12","title":"[예시] 접이식 캠핑 의자","category":"스포츠","originalPrice":45000,"salePrice":26900,"image":"","emoji":"🏕️","rocket":false,"addedAt":"2026-10-09T20:00:00+09:00","url":"#placeholder","top":false}
+  ]
+}
