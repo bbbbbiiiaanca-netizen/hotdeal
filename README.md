@@ -1,4 +1,4 @@
-# 오늘의 핫딜 — 쿠팡 파트너스 핫딜 큐레이션 (샘플)
+# 핫딜 오이데 — 쿠팡 파트너스 핫딜 큐레이션 (샘플)
 
 서버 없는 정적 사이트(HTML/CSS/JS)입니다. 상품 데이터는 모두 `deals.json`에 들어 있고, 나중에 쿠팡 파트너스 Open API로 자동 갱신할 수 있습니다.
 
@@ -12,6 +12,7 @@ privacy.html      개인정보처리방침 (애드센스 심사용)
 deals.json        상품 데이터
 assets/style.css  디자인 (모바일 우선)
 assets/app.js     목록 렌더링, 필터, 정렬, 검색
+assets/og.png     SNS 공유 이미지 1200x630 (brand/og.py로 생성)
 scripts/refresh-deals.mjs  쿠팡 API로 deals.json을 갱신하는 스크립트(스텁)
 screens/          스크린샷
 ```
