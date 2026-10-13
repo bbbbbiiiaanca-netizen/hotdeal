@@ -67,14 +67,16 @@ COUPANG_ACCESS_KEY=xxx COUPANG_SECRET_KEY=yyy COUPANG_SUB_ID=mychannel \
 ## 3-1. 텔레그램 채널 자동 포스팅
 `deals.json`으로 @hotdeal_oide 채널에 올릴 글(일반 텍스트)을 만들고 보냅니다.
 ```bash
-node scripts/make-post.mjs --mode morning            # 아침: TOP 딜 우선 최대 5개
+node scripts/make-post.mjs --mode morning            # 아침: TOP 딜 우선, 전체 최대 20개
 node scripts/make-post.mjs --mode evening --file deals.json   # 저녁: 아침 다음 3개
 node scripts/post-telegram.mjs --mode morning --dry-run       # 메시지만 출력 (토큰·네트워크 없음)
 TELEGRAM_BOT_TOKEN=... node scripts/post-telegram.mjs --mode morning
 ```
-- 글 첫 줄에는 항상 대가성 문구가 들어갑니다. 링크 미리보기는 끕니다.
-- 같은 날(KST) 같은 mode는 한 번만 올립니다. 기록은 `state/posted.json`(깃 제외, `STATE_FILE`로 경로 변경 가능)에 남습니다.
-- 전송이 실패하면 3초 뒤 한 번 더 시도합니다. 토큰은 출력·로그에 남기지 않습니다.
+- 아침 헤더는 `🔥 M/D 오늘의 핫딜 오이데~ TOP N`(N = 실제 개수), 저녁은 3개입니다.
+- 글 맨 마지막 줄(전체 목록 링크 다음)에 항상 대가성 문구가 들어갑니다. 링크 미리보기는 끕니다.
+- 텔레그램 한도(4096자)를 넘으면 상품 단위로 여러 메시지로 나눠 차례로 보냅니다. 헤더는 첫 메시지, 안내 문구·전체 목록 링크는 마지막 메시지에 들어가고, **모든 메시지의 마지막 줄은 대가성 문구**입니다. `--dry-run`에서는 메시지가 여러 개일 때만 `----- part i/n -----` 줄로 구분해 보여줍니다.
+- 같은 날(KST) 같은 mode는 한 번만 올립니다. 기록은 `state/posted.json`(깃 제외, `STATE_FILE`로 경로 변경 가능)에 모든 message_id와 함께 남습니다. 메시지를 하나 보낼 때마다 저장하므로, 중간에 실패해서 다시 돌리면 이미 보낸 메시지는 건너뛰고 나머지만 보냅니다.
+- 메시지마다 전송이 실패하면 3초 뒤 한 번 더 시도합니다. 토큰은 출력·로그에 남기지 않습니다.
 - 테스트: `node --test tests/`
 
 ## 4. 대가성 문구 (법적 의무)

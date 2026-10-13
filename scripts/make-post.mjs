@@ -8,7 +8,7 @@ export const DISCLOSURE = '이 포스팅은 쿠팡 파트너스 활동의 일환
 export const FOOTER = ['가격과 재고는 수시로 바뀌어요. 구매 전에 쿠팡에서 확인하세요.', '전체 목록: https://hotdeal.sooinlab.com/'];
 export const TELEGRAM_LIMIT = 4096;
 export const CATEGORY_TAGS = { 육아: '#육아소모품', 뷰티: '#뷰티', 생활: '#생활주방', 반려동물: '#반려동물', 패션잡화: '#패션잡화' };
-const COUNTS = { morning: 5, evening: 3 };
+const COUNTS = { morning: 20, evening: 3 };
 
 export const DEFAULT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'deals.json');
 
@@ -39,7 +39,7 @@ export function priceLine(d) {
   return formatWon(d.salePrice) + (notes.length ? ` (${notes.join(', ')})` : '');
 }
 
-// morning: top:true 먼저, 나머지는 파일 순서로 최대 5개
+// morning: top:true 먼저, 나머지는 파일 순서로 최대 20개
 // evening: morning에 쓴 것 다음 3개, 부족하면 파일 순서 첫 3개
 export function pickDeals(deals, mode) {
   if (!COUNTS[mode]) throw new Error(`mode는 morning 또는 evening이어야 합니다: ${mode}`);
@@ -50,6 +50,8 @@ export function pickDeals(deals, mode) {
   return rest.length >= COUNTS.evening ? rest.slice(0, COUNTS.evening) : valid.slice(0, COUNTS.evening);
 }
 
+// 메시지 조각(part) 배열을 돌려줌. 4096자를 넘으면 상품 단위로 나눔.
+// 첫 조각에 헤더, 마지막 조각에 안내 문구·전체 목록 링크, 모든 조각의 마지막 줄은 대가성 문구.
 export function buildPost(data, { mode = 'morning', date } = {}) {
   const items = pickDeals(data?.deals, mode);
   if (!items.length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
@@ -58,18 +60,39 @@ export function buildPost(data, { mode = 'morning', date } = {}) {
     ? `🔥 ${md} 오늘의 핫딜 오이데~ TOP ${items.length}`
     : `🌙 ${md} 아직 할인 중인 핫딜 오이데~ ${items.length}`;
 
-  const lines = [DISCLOSURE, '', header];
-  items.forEach((d, i) => {
-    lines.push('', `${i + 1}) ${d.title.trim()}`, `   ${priceLine(d)}`, `   ${d.url.trim()}`);
+  const blocks = items.map((d, i) => {
+    const lines = [`${i + 1}) ${d.title.trim()}`, `   ${priceLine(d)}`, `   ${d.url.trim()}`];
     const tag = CATEGORY_TAGS[d.category];
     if (tag) lines.push(`   ${tag}`);
+    return lines.join('\n');
   });
-  lines.push('', ...FOOTER);
+  const midTail = DISCLOSURE;
+  const lastTail = [...FOOTER, DISCLOSURE].join('\n');
 
-  const message = lines.join('\n');
-  if (message.length > TELEGRAM_LIMIT) throw new Error(`메시지가 텔레그램 한도(${TELEGRAM_LIMIT}자)를 넘습니다: ${message.length}자`);
-  return message;
+  // 어느 조각이 마지막이 될지 모르므로 긴 꼬리(lastTail) 기준으로 채움
+  const groups = [];
+  let cur = [header];
+  for (const block of blocks) {
+    const next = [...cur, block];
+    if (cur.length > (groups.length ? 0 : 1) && [...next, lastTail].join('\n\n').length > TELEGRAM_LIMIT) {
+      groups.push(cur);
+      cur = [block];
+    } else {
+      cur = next;
+    }
+  }
+  groups.push(cur);
+
+  return groups.map((g, i) => {
+    const message = [...g, i === groups.length - 1 ? lastTail : midTail].join('\n\n');
+    if (message.length > TELEGRAM_LIMIT) throw new Error(`메시지가 텔레그램 한도(${TELEGRAM_LIMIT}자)를 넘습니다: ${message.length}자`);
+    return message;
+  });
 }
+
+// 조각이 여러 개면 '----- part i/n -----' 줄로 구분해서 출력용 문자열로 만듦
+export const formatParts = (parts) =>
+  parts.length > 1 ? parts.map((p, i) => `----- part ${i + 1}/${parts.length} -----\n${p}`).join('\n') : parts[0];
 
 export function parseArgs(argv) {
   const args = { mode: 'morning', file: DEFAULT_FILE, dryRun: false };
@@ -93,7 +116,7 @@ export async function loadData(file) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const { mode, file } = parseArgs(process.argv.slice(2));
-    console.log(buildPost(await loadData(file), { mode }));
+    console.log(formatParts(buildPost(await loadData(file), { mode })));
   } catch (e) {
     console.error(e.message);
     process.exit(1);

@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPost, parseArgs, loadData } from './make-post.mjs';
+import { buildPost, formatParts, parseArgs, loadData } from './make-post.mjs';
 
 export const CHAT_ID = '@hotdeal_oide';
 const TOKEN_RE = /\d+:[A-Za-z0-9_-]{30,}/;
@@ -28,8 +28,18 @@ export function kstDate(now = new Date()) {
   return new Date(now.getTime() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
-export const isDuplicate = (entries, date, mode) => entries.some((e) => e.date === date && e.mode === mode);
-export const addEntry = (entries, date, mode, message_id) => [...entries, { date, mode, message_id }];
+// 기록: { date, mode, parts, message_ids }. 조각을 하나 보낼 때마다 저장해서, 중간에 실패해도 보낸 조각은 다시 보내지 않음.
+// (예전 형식 { date, mode, message_id }는 다 보낸 것으로 봄)
+export const findEntry = (entries, date, mode) => entries.find((e) => e.date === date && e.mode === mode);
+export const sentIds = (entry) => entry?.message_ids ?? (entry?.message_id != null ? [entry.message_id] : []);
+export const isDuplicate = (entries, date, mode) => {
+  const e = findEntry(entries, date, mode);
+  return !!e && (e.message_ids ? e.message_ids.length >= e.parts : true);
+};
+export const upsertEntry = (entries, date, mode, parts, message_ids) => [
+  ...entries.filter((e) => !(e.date === date && e.mode === mode)),
+  { date, mode, parts, message_ids },
+];
 
 export async function readState(file) {
   try {
@@ -73,11 +83,21 @@ export async function withRetry(fn, { delayMs = 3000, sleep = (ms) => new Promis
   }
 }
 
+// 아직 안 보낸 조각만 순서대로 보냄. 조각마다 한 번씩 재시도하고, 성공할 때마다 onSent(지금까지의 id 목록) 호출.
+export async function sendParts(parts, { alreadySent = [], send, onSent, retry } = {}) {
+  const ids = [...alreadySent];
+  for (let i = ids.length; i < parts.length; i++) {
+    ids.push(await withRetry(() => send(parts[i]), retry?.(i)));
+    await onSent?.([...ids]);
+  }
+  return ids;
+}
+
 async function main() {
   const { mode, file, dryRun } = parseArgs(process.argv.slice(2));
-  const message = buildPost(await loadData(file), { mode });
+  const parts = buildPost(await loadData(file), { mode });
   if (dryRun) {
-    console.log(message);
+    console.log(formatParts(parts));
     return;
   }
 
@@ -86,18 +106,27 @@ async function main() {
 
   const stateFile = process.env.STATE_FILE || DEFAULT_STATE_FILE;
   const date = kstDate();
-  const entries = await readState(stateFile);
+  let entries = await readState(stateFile);
   if (isDuplicate(entries, date, mode)) {
     console.log(`이미 올린 포스트입니다 (${date} ${mode}). 건너뜁니다.`);
     return;
   }
+  const alreadySent = sentIds(findEntry(entries, date, mode));
+  if (alreadySent.length) console.log(`이전에 보낸 ${alreadySent.length}/${parts.length}개 조각은 건너뜁니다.`);
 
   try {
-    const messageId = await withRetry(() => sendMessage(token, message), {
-      onRetry: (e) => console.error(`전송 실패, 3초 뒤 다시 시도합니다: ${sanitize(e.message, token)}`),
+    const ids = await sendParts(parts, {
+      alreadySent,
+      send: (text) => sendMessage(token, text),
+      onSent: async (ids) => {
+        entries = upsertEntry(entries, date, mode, parts.length, ids);
+        await writeState(stateFile, entries);
+      },
+      retry: (i) => ({
+        onRetry: (e) => console.error(`조각 ${i + 1}/${parts.length} 전송 실패, 3초 뒤 다시 시도합니다: ${sanitize(e.message, token)}`),
+      }),
     });
-    await writeState(stateFile, addEntry(entries, date, mode, messageId));
-    console.log(`전송 완료 (${date} ${mode}, message_id ${messageId})`);
+    console.log(`전송 완료 (${date} ${mode}, ${parts.length}개 조각, message_id ${ids.join(', ')})`);
   } catch (e) {
     throw new Error(sanitize(e.message, token));
   }
