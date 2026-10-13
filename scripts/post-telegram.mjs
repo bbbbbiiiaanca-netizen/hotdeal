@@ -8,11 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { buildPost, parseArgs, loadData } from './make-post.mjs';
 
 export const CHAT_ID = '@hotdeal_oide';
-const TOKEN_RE = /^\d+:[A-Za-z0-9_-]{30,}$/;
+const TOKEN_RE = /\d+:[A-Za-z0-9_-]{30,}/;
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const DEFAULT_STATE_FILE = path.join(ROOT, 'state', 'posted.json');
 
-export const isValidToken = (t) => typeof t === 'string' && TOKEN_RE.test(t);
+// 환경변수 값에 공백이나 다른 글자가 섞여 있어도 첫 번째 토큰 형태만 뽑아냄 (없으면 null)
+export const extractToken = (v) => (typeof v === 'string' ? v.match(TOKEN_RE)?.[0] ?? null : null);
+export const isValidToken = (t) => extractToken(t) === t;
 
 // 에러 메시지에서 토큰과 봇 API 경로를 지움
 export function sanitize(text, token) {
@@ -79,8 +81,8 @@ async function main() {
     return;
   }
 
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  if (!isValidToken(token)) throw new Error('TELEGRAM_BOT_TOKEN 환경변수가 없거나 형식이 올바르지 않습니다.');
+  const token = extractToken(process.env.TELEGRAM_BOT_TOKEN);
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN 환경변수가 없거나 형식이 올바르지 않습니다.');
 
   const stateFile = process.env.STATE_FILE || DEFAULT_STATE_FILE;
   const date = kstDate();
@@ -103,7 +105,7 @@ async function main() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((e) => {
-    console.error(sanitize(e.message, (process.env.TELEGRAM_BOT_TOKEN || '').trim()));
+    console.error(sanitize(e.message, extractToken(process.env.TELEGRAM_BOT_TOKEN)));
     process.exit(1);
   });
 }

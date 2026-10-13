@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPost, pickDeals, priceLine, kstMonthDay, DISCLOSURE, DEFAULT_FILE, loadData } from '../scripts/make-post.mjs';
-import { isDuplicate, addEntry, sanitize, isValidToken, withRetry, kstDate } from '../scripts/post-telegram.mjs';
+import { isDuplicate, addEntry, sanitize, isValidToken, extractToken, withRetry, kstDate } from '../scripts/post-telegram.mjs';
 
 const deal = (id, extra = {}) => ({
   id, title: `상품 ${id}`, category: '육아', originalPrice: 47100, salePrice: 22250,
@@ -99,6 +99,13 @@ test('post-telegram: 토큰 검사와 에러 문구 정리', () => {
   assert.ok(isValidToken(token));
   assert.ok(!isValidToken('123:short'));
   assert.ok(!isValidToken(''));
+  assert.ok(!isValidToken(` ${token} `));
+  assert.equal(extractToken(token), token);
+  assert.equal(extractToken(`  ${token}\n`), token);
+  assert.equal(extractToken(`TELEGRAM_BOT_TOKEN=${token} # 봇 토큰`), token);
+  assert.equal(extractToken(`"${token}" 987654321:${'B'.repeat(35)}`), token);
+  assert.equal(extractToken('토큰 없음 123:short'), null);
+  assert.equal(extractToken(undefined), null);
   const msg = sanitize(`request to https://api.telegram.org/bot${token}/sendMessage failed`, token);
   assert.ok(!msg.includes(token));
   assert.ok(!msg.includes('AAAAAAAAAA'));
