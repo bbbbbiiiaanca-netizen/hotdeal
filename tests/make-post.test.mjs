@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPost, formatParts, pickDeals, rankDeals, parseArgs, priceLine, kstMonthDay, truncateTitle, discountPct, DISCLOSURE, FOOTER, DEFAULT_FILE, loadData } from '../scripts/make-post.mjs';
+import { buildPost, formatParts, pickDeals, rankDeals, dedupeDeals, rankingSnapshot, slotItems, parseArgs, priceLine, kstMonthDay, truncateTitle, discountPct, DISCLOSURE, FOOTER, DEFAULT_FILE, loadData } from '../scripts/make-post.mjs';
 
 const deal = (id, extra = {}) => ({
   id, title: `상품 ${id}`, category: '육아', originalPrice: 47100, salePrice: 22250,
@@ -99,6 +99,41 @@ test('slot 몫이 없으면 빈 배열, 유효한 상품이 아예 없으면 에
   // 번호는 slot마다 1부터
   const deals = Array.from({ length: 7 }, (_, i) => deal(`d${i}`));
   assert.ok(one(data(deals), { slot: 2 }).includes('\n1) 상품 d5\n'));
+});
+
+test('id나 url이 겹치면 처음 것만 남기고 순위를 매김', () => {
+  const deals = [
+    deal('a', { salePrice: 9000, originalPrice: 10000 }),
+    deal('b'),
+    deal('a', { title: 'id 중복', salePrice: 1000, originalPrice: 10000 }),
+    deal('c', { url: ' https://link.coupang.com/a/b ', salePrice: 1000, originalPrice: 10000 }),
+    deal('d', { url: 'https://link.coupang.com/a/a' }),
+    deal('e'),
+  ];
+  assert.deepEqual(dedupeDeals(deals).map((d) => d.id), ['a', 'b', 'e']);
+  assert.deepEqual(rankDeals(deals).map((d) => [d.id, d.title]), [['b', '상품 b'], ['e', '상품 e'], ['a', '상품 a']]);
+  // 유효하지 않은 상품은 먼저 빼므로, 같은 id의 뒤쪽 유효한 상품이 남음
+  assert.deepEqual(rankDeals([deal('x', { url: '' }), deal('x', { title: '살아남음' })]).map((d) => d.title), ['살아남음']);
+  // id가 없어도 url로 중복 제거, 중복이 빠진 만큼 다음 순위가 slot에 들어옴
+  const noId = [deal(undefined, { url: 'https://u/1' }), deal(undefined, { url: 'https://u/1' }), deal(undefined, { url: 'https://u/2' })];
+  assert.deepEqual(pickDeals(noId, 1).map((d) => d.url), ['https://u/1', 'https://u/2']);
+  const many = Array.from({ length: 6 }, (_, i) => deal(`d${i}`));
+  assert.deepEqual(pickDeals([many[0], many[0], ...many.slice(1)], 1).map((d) => d.id), ['d0', 'd1', 'd2', 'd3', 'd4']);
+});
+
+test('하루 순위 스냅샷은 글에 필요한 필드만, slotItems는 exclude id를 뺌', () => {
+  const deals = [deal('a', { image: 'x.png', top: true, priceType: 'coupon' }), deal('b')];
+  const snap = rankingSnapshot(deals);
+  assert.deepEqual(snap[0], {
+    id: 'a', url: 'https://link.coupang.com/a/a', title: '상품 a', category: '육아', originalPrice: 47100, salePrice: 22250, priceType: 'coupon',
+  });
+  // 스냅샷으로 만든 글 = deals로 만든 글
+  assert.deepEqual(buildPost({ updatedAt: data([]).updatedAt }, { slot: 1, ranking: snap }), buildPost(data(deals), { slot: 1 }));
+  const ranking = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}` }));
+  assert.deepEqual(slotItems(ranking, 2, ['r6', 'r0', 'zz']).map((d) => d.id), ['r5', 'r7', 'r8', 'r9']);
+  assert.deepEqual(slotItems(ranking, 3).map((d) => d.id), ['r10', 'r11']);
+  assert.throws(() => slotItems(ranking, 0), /slot/);
+  assert.throws(() => buildPost({ updatedAt: data([]).updatedAt }, { slot: 1, ranking: [] }), /상품이 없습니다/);
 });
 
 test('--slot 인자', () => {

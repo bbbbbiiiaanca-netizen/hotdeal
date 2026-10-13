@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { buildPost, formatParts, parseArgs, loadData, emptySlotMessage } from './make-post.mjs';
+import { buildPost, formatParts, parseArgs, loadData, emptySlotMessage, rankingSnapshot, slotItems } from './make-post.mjs';
 
 export const CHAT_ID = '@hotdeal_oide';
 const TOKEN_RE = /\d+:[A-Za-z0-9_-]{30,}/;
@@ -36,7 +36,9 @@ export function kstDate(now = new Date()) {
 export const sha256 = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 
 // ---------- 상태 파일 ----------
-// 기록: { date, slot, parts: [{ index, text, hash, status, message_id? }] } — 같은 날(KST) 같은 slot은 한 번만
+// 기록: { date, slot, ids, parts: [{ index, text, hash, status, message_id? }] } — 같은 날(KST) 같은 slot은 한 번만
+// 하루 순위: { date, updatedAt, ranking: [상품…] } — 그날(KST) 첫 slot 실행 때 저장하고, 이후 slot은 이걸로 만듦.
+// 다른 slot 기록의 ids(그 slot에 넣은 상품 id)는 빼고 만듦.
 // status: pending(아직 안 보냄) → sending(보내는 중) → sent | uncertain(보냈는지 알 수 없음)
 // 처음 실행할 때 모든 조각의 글과 해시를 저장(스냅샷)하고, 다시 돌리면 deals.json이 바뀌었어도 스냅샷을 보냄.
 // slot 없는 예전(morning/evening) 기록은 무시함.
@@ -52,12 +54,30 @@ export const upsertEntry = (entries, entry) => [
   entry,
 ];
 
-export function snapshotEntry(date, slot, texts) {
+export function snapshotEntry(date, slot, texts, ids) {
   return {
     date,
     slot,
+    ...(ids && { ids }),
     parts: texts.map((text, index) => ({ index, text, hash: sha256(text), status: 'pending' })),
   };
+}
+
+export const findRanking = (entries, date) => entries.find((e) => e.date === date && Array.isArray(e.ranking));
+export const upsertRanking = (entries, date, data) => [
+  ...entries.filter((e) => !(e.date === date && Array.isArray(e.ranking))),
+  { date, updatedAt: data?.updatedAt, ranking: rankingSnapshot(data?.deals) },
+];
+// 같은 날 다른 slot에 이미 넣은 상품 id
+export const postedIds = (entries, date, slot) =>
+  entries.filter((e) => e.date === date && e.slot !== slot && Array.isArray(e.ids)).flatMap((e) => e.ids);
+
+// 저장된 하루 순위(없으면 deals.json으로 새로 만든 순위)로 slot의 상품과 글을 만듦
+export function buildSlot(entries, date, slot, data) {
+  const day = findRanking(entries, date) ?? { updatedAt: data?.updatedAt, ranking: rankingSnapshot(data?.deals) };
+  const exclude = postedIds(entries, date, slot);
+  const texts = buildPost({ updatedAt: day.updatedAt }, { slot, ranking: day.ranking, exclude });
+  return { texts, ids: texts.length ? slotItems(day.ranking, slot, exclude).map((d) => d.id) : [] };
 }
 
 export async function readState(file) {
@@ -246,8 +266,11 @@ export function parsePostArgs(argv) {
 
 export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => new Date(), sleep, log = console.log, warn = console.error } = {}) {
   const { slot, file, dryRun, forceUncertain } = parsePostArgs(argv);
+  const stateFile = env.STATE_FILE || DEFAULT_STATE_FILE;
+  const date = kstDate(now());
   if (dryRun) {
-    const parts = buildPost(await loadData(file), { slot });
+    // 상태 파일은 읽기만 함 (저장된 하루 순위가 있으면 그걸로 미리 보기)
+    const { texts: parts } = buildSlot(await readState(stateFile), date, slot, await loadData(file));
     log(parts.length ? formatParts(parts) : emptySlotMessage(slot));
     return { status: parts.length ? 'dry-run' : 'empty' };
   }
@@ -255,9 +278,7 @@ export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => 
   const token = extractToken(env.TELEGRAM_BOT_TOKEN);
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN 환경변수가 없거나 형식이 올바르지 않습니다.');
 
-  const stateFile = env.STATE_FILE || DEFAULT_STATE_FILE;
   const lockFile = path.join(path.dirname(stateFile), 'post.lock');
-  const date = kstDate(now());
   const release = await acquireLock(lockFile, { now: () => now().getTime() });
   try {
     let entries = await readState(stateFile);
@@ -267,12 +288,18 @@ export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => 
     }
     let entry = findEntry(entries, date, slot);
     if (!entry) {
-      const texts = buildPost(await loadData(file), { slot });
+      if (!findRanking(entries, date)) {
+        const data = await loadData(file);
+        buildSlot(entries, date, slot, data); // 유효한 상품이 없으면 여기서 에러 (빈 순위는 저장하지 않음)
+        entries = upsertRanking(entries, date, data);
+        await writeState(stateFile, entries);
+      }
+      const { texts, ids } = buildSlot(entries, date, slot);
       if (!texts.length) {
         log(emptySlotMessage(slot));
         return { status: 'empty' };
       }
-      entry = snapshotEntry(date, slot, texts);
+      entry = snapshotEntry(date, slot, texts, ids);
       entries = upsertEntry(entries, entry);
       await writeState(stateFile, entries);
     } else {

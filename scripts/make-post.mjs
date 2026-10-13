@@ -1,6 +1,7 @@
 // deals.json으로 텔레그램 채널 포스트(일반 텍스트)를 만드는 스크립트 (Node 18+, 외부 패키지 없음)
 // 사용법: node scripts/make-post.mjs --slot 1|2|3|4 [--file deals.json]
 // 하루 4번(09·13·17·21시 KST) 올림. 할인율 높은 순 최대 20개를 5개씩 나눠 slot k에 k번째 묶음을 씀.
+// 같은 id나 url이 여러 번 있으면 처음 것만 씀.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,25 +60,50 @@ export function priceLine(d) {
   return formatWon(wonPrice(d.salePrice)) + (notes.length ? ` (${notes.join(', ')})` : '');
 }
 
-// 유효한 상품을 할인율 높은 순으로(할인율 없으면 뒤로, 같으면 파일 순서) 최대 20개
+// 같은 id 또는 같은 url(앞뒤 공백 무시)이 또 나오면 처음 것만 남김
+export function dedupeDeals(deals) {
+  const ids = new Set();
+  const urls = new Set();
+  return (deals || []).filter((d) => {
+    const id = d?.id ?? null;
+    const url = typeof d?.url === 'string' ? d.url.trim() : null;
+    if ((id !== null && ids.has(id)) || (url && urls.has(url))) return false;
+    if (id !== null) ids.add(id);
+    if (url) urls.add(url);
+    return true;
+  });
+}
+
+// 유효한 상품을 id·url로 중복 제거한 뒤 할인율 높은 순으로(할인율 없으면 뒤로, 같으면 파일 순서) 최대 20개
 export function rankDeals(deals) {
   const pct = (d) => discountPct(d.salePrice, d.originalPrice) ?? -1;
-  return (deals || []).filter(isValid).sort((a, b) => pct(b) - pct(a)).slice(0, SLOTS * PER_SLOT);
+  return dedupeDeals((deals || []).filter(isValid)).sort((a, b) => pct(b) - pct(a)).slice(0, SLOTS * PER_SLOT);
+}
+
+// 하루 순위 스냅샷용: 글을 만드는 데 필요한 필드만 남김
+export const RANKING_FIELDS = ['id', 'url', 'title', 'category', 'originalPrice', 'salePrice', 'priceType', 'coupon', 'wow'];
+export const rankingSnapshot = (deals) =>
+  rankDeals(deals).map((d) => Object.fromEntries(RANKING_FIELDS.filter((k) => d[k] !== undefined).map((k) => [k, d[k]])));
+
+// 순위 목록에서 slot k(1~4)는 5(k-1)+1 ~ 5k번째. exclude에 있는 id(다른 slot에 이미 올린 것)는 뺌
+export function slotItems(ranking, slot, exclude = []) {
+  if (!isSlot(slot)) throw new Error(`slot은 1~${SLOTS} 사이 정수여야 합니다: ${slot}`);
+  const skip = new Set(exclude);
+  return ranking.slice((slot - 1) * PER_SLOT, slot * PER_SLOT).filter((d) => d.id == null || !skip.has(d.id));
 }
 
 // slot k(1~4)는 순위 5(k-1)+1 ~ 5k번째. 상품이 모자라면 빈 배열
-export function pickDeals(deals, slot) {
-  if (!isSlot(slot)) throw new Error(`slot은 1~${SLOTS} 사이 정수여야 합니다: ${slot}`);
-  return rankDeals(deals).slice((slot - 1) * PER_SLOT, slot * PER_SLOT);
-}
+export const pickDeals = (deals, slot) => slotItems(rankDeals(deals), slot);
 
 // 메시지 조각(part) 배열을 돌려줌. 4096자를 넘으면 상품 단위로 나눔.
 // 첫 조각에 헤더, 마지막 조각에 안내 문구·전체 목록 링크, 모든 조각의 마지막 줄은 대가성 문구.
 // 헤더와 첫 상품이 한 메시지에 안 들어가면 헤더만 따로 첫 조각이 됨.
 // 유효한 상품이 아예 없으면 에러, 상품은 있는데 이 slot 몫이 없으면 빈 배열(건너뜀).
-export function buildPost(data, { slot, date } = {}) {
-  if (!rankDeals(data?.deals).length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
-  const items = pickDeals(data.deals, slot);
+// ranking을 주면 data.deals 대신 저장된 하루 순위로 만들고, exclude의 id는 뺌.
+export function buildPost(data, { slot, date, ranking, exclude } = {}) {
+  const ranked = ranking ?? rankDeals(data?.deals);
+  if (!ranked.length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
+  const items = slotItems(ranked, slot, exclude);
   if (!items.length) return [];
   const md = kstMonthDay(date ?? data.updatedAt);
   const header = `🔥 ${md} 핫딜 오이데~ TOP ${items.length} (${slot}/${SLOTS})`;

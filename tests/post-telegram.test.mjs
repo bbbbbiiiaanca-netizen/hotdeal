@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   isDuplicate, findEntry, sentIds, upsertEntry, snapshotEntry, sendParts, sendMessage, classifyFetchError,
   SendError, UncertainError, sanitize, isValidToken, extractToken, kstDate, sha256,
-  readState, writeState, acquireLock, run,
+  readState, writeState, acquireLock, run, findRanking, postedIds,
 } from '../scripts/post-telegram.mjs';
 
 const TOKEN = '123456789:' + 'A'.repeat(35);
@@ -33,7 +33,9 @@ async function setup(deals, slot = 1) {
       fetchImpl, now: () => NOW, sleep: async () => {},
       log: (m) => logs.push(m), warn: (m) => logs.push(m),
     });
-  return { dir, file, stateFile, logs, go, state: () => readState(stateFile) };
+  // slots(): 하루 순위 기록을 뺀 slot 기록만
+  const slots = async () => (await readState(stateFile)).filter((e) => e.slot != null);
+  return { dir, file, stateFile, logs, go, state: () => readState(stateFile), slots };
 }
 
 // 가짜 텔레그램: 요청 본문을 기록하고 순서대로 응답(함수면 호출)
@@ -251,7 +253,7 @@ test('run: 첫 실행에 스냅샷 저장, 이어서 보낼 땐 바뀐 deals.jso
   // 두 번째 조각에서 확실한 실패 2번 → 멈춤
   const first = fakeFetch([okRes(1), tgErr(500, 'Internal'), tgErr(500, 'Internal')]);
   await assert.rejects(s.go(first.impl), /Telegram 500/);
-  const [e1] = await s.state();
+  const [e1] = await s.slots();
   assert.ok(e1.parts.length >= 2);
   assert.deepEqual(e1.parts.slice(0, 2).map((p) => p.status), ['sent', 'pending']);
   for (const p of e1.parts) assert.equal(p.hash, sha256(p.text));
@@ -264,7 +266,7 @@ test('run: 첫 실행에 스냅샷 저장, 이어서 보낼 땐 바뀐 deals.jso
   assert.equal(result.status, 'sent');
   assert.deepEqual(second.calls.map((c) => c.text), e1.parts.slice(1).map((p) => p.text));
   assert.ok(second.calls.every((c) => !c.text.includes('상품 new')));
-  const [e2] = await s.state();
+  const [e2] = await s.slots();
   assert.ok(e2.parts.every((p) => p.status === 'sent'));
   assert.deepEqual(result.ids, [1, ...e1.parts.slice(1).map((_, i) => 100 + i)]);
 
@@ -286,7 +288,7 @@ test('run: 응답 시간 초과는 재전송하지 않고 uncertain, 다음 실�
     return true;
   });
   assert.equal(first.calls.length, 1); // 재시도 없음
-  assert.equal((await s.state())[0].parts[0].status, 'uncertain');
+  assert.equal((await s.slots())[0].parts[0].status, 'uncertain');
 
   const second = fakeFetch([okRes(3)]);
   await assert.rejects(s.go(second.impl), /전송 결과를 알 수 없는 조각/);
@@ -335,26 +337,107 @@ test('run: slot마다 따로 보내고, 같은 날 같은 slot은 한 번만', a
   assert.equal(r2.status, 'sent');
   assert.ok(f2.calls[0].text.startsWith('🔥 10/13 핫딜 오이데~ TOP 5 (2/4)\n'));
   assert.deepEqual(titles(f2.calls[0].text), ['상품 d6', '상품 d5', '상품 d4', '상품 d3', '상품 d2']);
-  const st = await s1.state();
+  const st = await s1.slots();
   assert.deepEqual(st.map((e) => [e.date, e.slot]), [[DATE, 1], [DATE, 2]]);
+  assert.deepEqual(st.map((e) => e.ids), [['d11', 'd10', 'd9', 'd8', 'd7'], ['d6', 'd5', 'd4', 'd3', 'd2']]);
   // slot 1 다시 → 중복
   const f3 = fakeFetch([okRes(3)]);
   assert.equal((await s1.go(f3.impl)).status, 'duplicate');
   assert.equal(f3.calls.length, 0);
 });
 
-test('run: slot 몫이 없으면 아무것도 안 보내고 상태도 안 남김', async () => {
+test('run: slot 몫이 없으면 아무것도 안 보내고 slot 기록도 안 남김 (하루 순위만 저장)', async () => {
   const s = await setup([deal('a'), deal('b')], 3);
   const f = fakeFetch([okRes(1)]);
   assert.equal((await s.go(f.impl)).status, 'empty');
   assert.equal(f.calls.length, 0);
   assert.ok(s.logs.some((l) => l.includes('slot 3에 올릴 상품이 없습니다')));
-  assert.deepEqual(await s.state(), []);
+  assert.deepEqual(await s.slots(), []);
+  assert.deepEqual((await s.state()).map((e) => [e.date, e.ranking.map((d) => d.id)]), [[DATE, ['a', 'b']]]);
   await assert.rejects(fs.stat(path.join(path.dirname(s.stateFile), 'post.lock')), { code: 'ENOENT' });
   // dry-run도 같음
   const dry = await s.go(f.impl, ['--dry-run']);
   assert.equal(dry.status, 'empty');
   assert.equal(f.calls.length, 0);
+});
+
+// 같은 상태 파일로 다른 slot을 실행하는 도우미
+const runSlot = (s, slot, fetchImpl, { now = NOW, extra = [] } = {}) =>
+  run({
+    argv: ['--slot', String(slot), '--file', s.file, ...extra], env: { TELEGRAM_BOT_TOKEN: TOKEN, STATE_FILE: s.stateFile },
+    fetchImpl, now: () => now, sleep: async () => {}, log: (m) => s.logs.push(m), warn: (m) => s.logs.push(m),
+  });
+const titlesOf = (t) => t.match(/^\d+\) (.+)$/gm).map((l) => l.replace(/^\d+\) /, ''));
+
+test('run: 그날 첫 실행(어느 slot이든)에 하루 순위를 저장하고, 이후 slot은 deals.json이 바뀌어도 저장된 순위로 만듦', async () => {
+  // d24가 할인율 가장 높음
+  const deals = Array.from({ length: 25 }, (_, i) => deal(`d${i}`, { salePrice: 10000 - i * 300, originalPrice: 10000, image: 'x.png' }));
+  const s = await setup(deals, 2);
+  const f2 = fakeFetch([okRes(2)]);
+  assert.equal((await s.go(f2.impl)).status, 'sent');
+  assert.deepEqual(titlesOf(f2.calls[0].text), ['상품 d19', '상품 d18', '상품 d17', '상품 d16', '상품 d15']);
+  const day = findRanking(await s.state(), DATE);
+  assert.equal(day.updatedAt, '2026-10-13T07:35:00+09:00');
+  assert.equal(day.ranking.length, 20);
+  assert.deepEqual(day.ranking.slice(0, 2).map((d) => d.id), ['d24', 'd23']);
+  assert.deepEqual(Object.keys(day.ranking[0]).sort(), ['category', 'id', 'originalPrice', 'salePrice', 'title', 'url']);
+
+  // deals.json이 통째로 바뀌어도 같은 날 slot 1·4는 저장된 순위로
+  await fs.writeFile(s.file, JSON.stringify({ updatedAt: '2026-10-13T12:00:00+09:00', deals: [deal('new', { salePrice: 1, originalPrice: 10000 })] }));
+  const f1 = fakeFetch([okRes(1)]);
+  await runSlot(s, 1, f1.impl);
+  assert.deepEqual(titlesOf(f1.calls[0].text), ['상품 d24', '상품 d23', '상품 d22', '상품 d21', '상품 d20']);
+  const f4 = fakeFetch([okRes(4)]);
+  await runSlot(s, 4, f4.impl);
+  assert.deepEqual(titlesOf(f4.calls[0].text), ['상품 d9', '상품 d8', '상품 d7', '상품 d6', '상품 d5']);
+  assert.ok(![...f1.calls, ...f4.calls].some((c) => c.text.includes('상품 new')));
+  // dry-run도 저장된 순위로 보여 주고 상태는 안 바꿈
+  const before = await fs.readFile(s.stateFile, 'utf8');
+  const logs = [];
+  await run({ argv: ['--slot', '3', '--file', s.file, '--dry-run'], env: { STATE_FILE: s.stateFile }, now: () => NOW, log: (m) => logs.push(m) });
+  assert.deepEqual(titlesOf(logs[0]), ['상품 d14', '상품 d13', '상품 d12', '상품 d11', '상품 d10']);
+  assert.equal(await fs.readFile(s.stateFile, 'utf8'), before);
+  // 순위 기록은 하루에 하나
+  assert.equal((await s.state()).filter((e) => Array.isArray(e.ranking)).length, 1);
+
+  // 다음 날은 새 deals.json으로 새 순위
+  const f5 = fakeFetch([okRes(5)]);
+  await runSlot(s, 1, f5.impl, { now: new Date('2026-10-13T22:00:00Z') });
+  assert.deepEqual(titlesOf(f5.calls[0].text), ['상품 new']);
+  assert.deepEqual(findRanking(await s.state(), '2026-10-14').ranking.map((d) => d.id), ['new']);
+});
+
+test('run: 같은 날 다른 slot에 이미 올린 id는 빼고 만듦', async () => {
+  const deals = Array.from({ length: 10 }, (_, i) => deal(`d${i}`));
+  const s = await setup(deals, 2);
+  // 순위가 바뀌기 전에 만든 예전 slot 1 기록이 d6을 이미 올렸다고 가정
+  await writeState(s.stateFile, [{ ...snapshotEntry(DATE, 1, ['old'], ['d0', 'd6']), parts: [{ index: 0, text: 'old', hash: sha256('old'), status: 'sent', message_id: 1 }] }]);
+  assert.deepEqual(postedIds(await s.state(), DATE, 2), ['d0', 'd6']);
+  assert.deepEqual(postedIds(await s.state(), DATE, 1), []);
+  const f = fakeFetch([okRes(2)]);
+  await s.go(f.impl);
+  assert.ok(f.calls[0].text.startsWith('🔥 10/13 핫딜 오이데~ TOP 4 (2/4)\n'));
+  assert.deepEqual(titlesOf(f.calls[0].text), ['상품 d5', '상품 d7', '상품 d8', '상품 d9']);
+  assert.deepEqual((await s.slots()).find((e) => e.slot === 2).ids, ['d5', 'd7', 'd8', 'd9']);
+});
+
+test('run: id·url 중복 상품은 하루 순위에 한 번만', async () => {
+  const s = await setup([deal('a'), deal('a', { title: '중복' }), deal('b', { url: 'https://link.coupang.com/a/a' }), deal('c')]);
+  const f = fakeFetch([okRes(1)]);
+  await s.go(f.impl);
+  assert.deepEqual(titlesOf(f.calls[0].text), ['상품 a', '상품 c']);
+  assert.deepEqual(findRanking(await s.state(), DATE).ranking.map((d) => d.id), ['a', 'c']);
+});
+
+test('run: 유효한 상품이 없으면 에러, 빈 순위는 저장하지 않음', async () => {
+  const s = await setup([deal('x', { url: '' })]);
+  const f = fakeFetch([okRes(1)]);
+  await assert.rejects(s.go(f.impl), /상품이 없습니다/);
+  assert.deepEqual(await s.state(), []);
+  // 나중에 deals.json이 고쳐지면 그날 순위를 새로 만듦
+  await fs.writeFile(s.file, JSON.stringify({ updatedAt: '2026-10-13T07:35:00+09:00', deals: [deal('ok')] }));
+  assert.equal((await s.go(f.impl)).status, 'sent');
+  assert.deepEqual(findRanking(await s.state(), DATE).ranking.map((d) => d.id), ['ok']);
 });
 
 test('run: 토큰은 에러·로그에 나오지 않음', async () => {
