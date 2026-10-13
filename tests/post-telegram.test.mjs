@@ -20,7 +20,7 @@ const deal = (id, extra = {}) => ({
 });
 
 // deals.json과 상태 파일을 임시 폴더에 만들고 run()을 부르는 도우미
-async function setup(deals) {
+async function setup(deals, slot = 1) {
   const dir = await tmpDir();
   const file = path.join(dir, 'deals.json');
   await fs.writeFile(file, JSON.stringify({ updatedAt: '2026-10-13T07:35:00+09:00', deals }));
@@ -28,7 +28,7 @@ async function setup(deals) {
   const logs = [];
   const go = (fetchImpl, extraArgs = []) =>
     run({
-      argv: ['--mode', 'morning', '--file', file, ...extraArgs],
+      argv: ['--slot', String(slot), '--file', file, ...extraArgs],
       env: { TELEGRAM_BOT_TOKEN: TOKEN, STATE_FILE: stateFile },
       fetchImpl, now: () => NOW, sleep: async () => {},
       log: (m) => logs.push(m), warn: (m) => logs.push(m),
@@ -53,13 +53,13 @@ const badJson = (status = 200) => ({ ok: status < 400, status, json: async () =>
 const netErr = (code) => () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code } }); };
 const timeoutErr = () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); };
 
-const entry = (texts) => snapshotEntry(DATE, 'morning', texts);
+const entry = (texts) => snapshotEntry(DATE, 1, texts);
 const noSleep = { sleep: async () => {} };
 
 test('스냅샷: 조각마다 글·sha256 해시·pending 상태 저장', () => {
   const e = entry(['a', 'b']);
   assert.deepEqual(e, {
-    date: DATE, mode: 'morning',
+    date: DATE, slot: 1,
     parts: [
       { index: 0, text: 'a', hash: sha256('a'), status: 'pending' },
       { index: 1, text: 'b', hash: sha256('b'), status: 'pending' },
@@ -68,28 +68,30 @@ test('스냅샷: 조각마다 글·sha256 해시·pending 상태 저장', () => 
   assert.equal(sha256('a'), 'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb');
 });
 
-test('중복 방지 헬퍼 (새 형식 + 예전 형식)', () => {
+test('중복 방지 헬퍼: 날짜 + slot 기준', () => {
   let entries = [];
-  assert.equal(isDuplicate(entries, DATE, 'morning'), false);
+  assert.equal(isDuplicate(entries, DATE, 1), false);
   const e = entry(['a', 'b']);
   e.parts[0].status = 'sent';
   e.parts[0].message_id = 101;
   entries = upsertEntry(entries, e);
-  assert.equal(isDuplicate(entries, DATE, 'morning'), false);
-  assert.deepEqual(sentIds(findEntry(entries, DATE, 'morning')), [101]);
+  assert.equal(isDuplicate(entries, DATE, 1), false);
+  assert.deepEqual(sentIds(findEntry(entries, DATE, 1)), [101]);
   e.parts[1].status = 'sent';
   e.parts[1].message_id = 102;
   entries = upsertEntry(entries, e);
   assert.equal(entries.length, 1);
-  assert.equal(isDuplicate(entries, DATE, 'morning'), true);
-  assert.equal(isDuplicate(entries, DATE, 'evening'), false);
-  // 예전 형식
-  assert.equal(isDuplicate([{ date: '2026-10-12', mode: 'evening', message_id: 9 }], '2026-10-12', 'evening'), true);
-  assert.equal(isDuplicate([{ date: DATE, mode: 'morning', parts: 2, message_ids: [1] }], DATE, 'morning'), false);
-  assert.deepEqual(sentIds({ message_id: 9 }), [9]);
-  // 예전 형식으로 일부만 보냈으면 앞 조각은 sent로 옮김
-  const migrated = snapshotEntry(DATE, 'morning', ['a', 'b'], { parts: 2, message_ids: [55] });
-  assert.deepEqual(migrated.parts.map((p) => [p.status, p.message_id]), [['sent', 55], ['pending', undefined]]);
+  assert.equal(isDuplicate(entries, DATE, 1), true);
+  assert.equal(isDuplicate(entries, DATE, 2), false);
+  assert.equal(isDuplicate(entries, '2026-10-14', 1), false);
+  // 다른 slot은 따로 저장
+  entries = upsertEntry(entries, snapshotEntry(DATE, 2, ['c']));
+  assert.equal(entries.length, 2);
+  // slot 없는 예전(morning/evening) 기록은 무시
+  const old = [{ date: DATE, mode: 'morning', message_id: 9 }, { date: DATE, mode: 'evening', parts: 1, message_ids: [1] }];
+  assert.equal(findEntry(old, DATE, 1), undefined);
+  assert.equal(isDuplicate(old, DATE, 1), false);
+  assert.equal(upsertEntry(old, snapshotEntry(DATE, 1, ['a'])).length, 3);
   assert.equal(kstDate(new Date('2026-10-12T15:30:00Z')), '2026-10-13');
 });
 
@@ -243,7 +245,8 @@ test('잠금: 동시 실행 막기, 10분 지난 잠금은 풀기, 끝나면 해
 });
 
 test('run: 첫 실행에 스냅샷 저장, 이어서 보낼 땐 바뀐 deals.json이 아니라 스냅샷을 보냄', async () => {
-  const deals = Array.from({ length: 20 }, (_, i) => deal(`d${i}`, { title: `긴 상품 이름 ${i} `.repeat(30) }));
+  // URL을 길게 해서 slot 1(5개)이 여러 조각으로 나뉘게 함
+  const deals = Array.from({ length: 5 }, (_, i) => deal(`d${i}`, { url: `https://link.coupang.com/a/d${i}?` + 'u'.repeat(1200) }));
   const s = await setup(deals);
   // 두 번째 조각에서 확실한 실패 2번 → 멈춤
   const first = fakeFetch([okRes(1), tgErr(500, 'Internal'), tgErr(500, 'Internal')]);
@@ -313,6 +316,45 @@ test('run: 다른 실행이 잠금을 잡고 있으면 아무것도 안 보냄',
   await assert.rejects(s.go(f.impl), /다른 전송이 실행 중/);
   assert.equal(f.calls.length, 0);
   assert.ok(await fs.stat(lock)); // 남의 잠금은 그대로
+});
+
+test('run: slot마다 따로 보내고, 같은 날 같은 slot은 한 번만', async () => {
+  const deals = Array.from({ length: 12 }, (_, i) => deal(`d${i}`, { salePrice: 10000 - i * 100, originalPrice: 10000 }));
+  const s1 = await setup(deals, 1);
+  const f1 = fakeFetch([okRes(1)]);
+  assert.equal((await s1.go(f1.impl)).status, 'sent');
+  assert.ok(f1.calls[0].text.startsWith('🔥 10/13 핫딜 오이데~ TOP 5 (1/4)\n'));
+  const titles = (t) => t.match(/^\d+\) (.+)$/gm).map((l) => l.replace(/^\d+\) /, ''));
+  assert.deepEqual(titles(f1.calls[0].text), ['상품 d11', '상품 d10', '상품 d9', '상품 d8', '상품 d7']);
+  // 같은 상태 파일로 slot 2: 다음 5개
+  const f2 = fakeFetch([okRes(2)]);
+  const r2 = await run({
+    argv: ['--slot', '2', '--file', s1.file], env: { TELEGRAM_BOT_TOKEN: TOKEN, STATE_FILE: s1.stateFile },
+    fetchImpl: f2.impl, now: () => NOW, log: () => {}, warn: () => {},
+  });
+  assert.equal(r2.status, 'sent');
+  assert.ok(f2.calls[0].text.startsWith('🔥 10/13 핫딜 오이데~ TOP 5 (2/4)\n'));
+  assert.deepEqual(titles(f2.calls[0].text), ['상품 d6', '상품 d5', '상품 d4', '상품 d3', '상품 d2']);
+  const st = await s1.state();
+  assert.deepEqual(st.map((e) => [e.date, e.slot]), [[DATE, 1], [DATE, 2]]);
+  // slot 1 다시 → 중복
+  const f3 = fakeFetch([okRes(3)]);
+  assert.equal((await s1.go(f3.impl)).status, 'duplicate');
+  assert.equal(f3.calls.length, 0);
+});
+
+test('run: slot 몫이 없으면 아무것도 안 보내고 상태도 안 남김', async () => {
+  const s = await setup([deal('a'), deal('b')], 3);
+  const f = fakeFetch([okRes(1)]);
+  assert.equal((await s.go(f.impl)).status, 'empty');
+  assert.equal(f.calls.length, 0);
+  assert.ok(s.logs.some((l) => l.includes('slot 3에 올릴 상품이 없습니다')));
+  assert.deepEqual(await s.state(), []);
+  await assert.rejects(fs.stat(path.join(path.dirname(s.stateFile), 'post.lock')), { code: 'ENOENT' });
+  // dry-run도 같음
+  const dry = await s.go(f.impl, ['--dry-run']);
+  assert.equal(dry.status, 'empty');
+  assert.equal(f.calls.length, 0);
 });
 
 test('run: 토큰은 에러·로그에 나오지 않음', async () => {

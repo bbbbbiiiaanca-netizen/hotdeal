@@ -1,5 +1,5 @@
 // make-post.mjs로 만든 포스트를 텔레그램 채널(@hotdeal_oide)에 올리는 스크립트 (Node 18+, 외부 패키지 없음)
-// 사용법: TELEGRAM_BOT_TOKEN=... node scripts/post-telegram.mjs --mode morning|evening [--file deals.json] [--dry-run] [--force-uncertain]
+// 사용법: TELEGRAM_BOT_TOKEN=... node scripts/post-telegram.mjs --slot 1|2|3|4 [--file deals.json] [--dry-run] [--force-uncertain]
 // --dry-run은 메시지만 출력합니다(토큰 불필요, 네트워크 호출 없음).
 // --force-uncertain은 전송 결과가 불확실(uncertain)한 조각을 다시 보냅니다. 채널에서 안 올라간 걸 직접 확인한 뒤에만 쓰세요.
 // 토큰은 절대 코드/깃/로그에 남기지 말고 환경변수(또는 GitHub Actions Secrets)로만 넘기세요.
@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { buildPost, formatParts, parseArgs, loadData } from './make-post.mjs';
+import { buildPost, formatParts, parseArgs, loadData, emptySlotMessage } from './make-post.mjs';
 
 export const CHAT_ID = '@hotdeal_oide';
 const TOKEN_RE = /\d+:[A-Za-z0-9_-]{30,}/;
@@ -36,39 +36,27 @@ export function kstDate(now = new Date()) {
 export const sha256 = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('hex');
 
 // ---------- 상태 파일 ----------
-// 기록: { date, mode, parts: [{ index, text, hash, status, message_id? }] }
+// 기록: { date, slot, parts: [{ index, text, hash, status, message_id? }] } — 같은 날(KST) 같은 slot은 한 번만
 // status: pending(아직 안 보냄) → sending(보내는 중) → sent | uncertain(보냈는지 알 수 없음)
 // 처음 실행할 때 모든 조각의 글과 해시를 저장(스냅샷)하고, 다시 돌리면 deals.json이 바뀌었어도 스냅샷을 보냄.
-// 예전 형식 { parts: 숫자, message_ids } / { message_id }도 읽음.
-export const findEntry = (entries, date, mode) => entries.find((e) => e.date === date && e.mode === mode);
-const isLegacy = (e) => !Array.isArray(e?.parts);
-export const sentIds = (entry) =>
-  isLegacy(entry)
-    ? entry?.message_ids ?? (entry?.message_id != null ? [entry.message_id] : [])
-    : entry.parts.filter((p) => p.status === 'sent').map((p) => p.message_id);
-export const isDuplicate = (entries, date, mode) => {
-  const e = findEntry(entries, date, mode);
-  if (!e) return false;
-  if (isLegacy(e)) return e.message_ids ? e.message_ids.length >= e.parts : true;
-  return e.parts.every((p) => p.status === 'sent');
+// slot 없는 예전(morning/evening) 기록은 무시함.
+export const findEntry = (entries, date, slot) =>
+  entries.find((e) => e.date === date && e.slot === slot && Array.isArray(e.parts));
+export const sentIds = (entry) => entry.parts.filter((p) => p.status === 'sent').map((p) => p.message_id);
+export const isDuplicate = (entries, date, slot) => {
+  const e = findEntry(entries, date, slot);
+  return !!e && e.parts.every((p) => p.status === 'sent');
 };
 export const upsertEntry = (entries, entry) => [
-  ...entries.filter((e) => !(e.date === entry.date && e.mode === entry.mode)),
+  ...entries.filter((e) => !(e.date === entry.date && e.slot === entry.slot)),
   entry,
 ];
 
-// 스냅샷 만들기. 예전 형식으로 일부만 보낸 기록이 있으면 앞쪽 조각은 보낸 것으로 표시.
-export function snapshotEntry(date, mode, texts, legacy) {
-  const done = legacy ? sentIds(legacy) : [];
+export function snapshotEntry(date, slot, texts) {
   return {
     date,
-    mode,
-    parts: texts.map((text, index) => ({
-      index,
-      text,
-      hash: sha256(text),
-      ...(index < done.length ? { status: 'sent', message_id: done[index] } : { status: 'pending' }),
-    })),
+    slot,
+    parts: texts.map((text, index) => ({ index, text, hash: sha256(text), status: 'pending' })),
   };
 }
 
@@ -197,7 +185,7 @@ export const uncertainHelp = (entry, stateFile) => {
     .map((p) => `  - 조각 ${p.index + 1}/${entry.parts.length} (sha256 ${p.hash.slice(0, 12)}…, 첫 줄: ${p.text.split('\n')[0]})`)
     .join('\n');
   return [
-    `전송 결과를 알 수 없는 조각이 있어 멈춥니다 (${entry.date} ${entry.mode}).`,
+    `전송 결과를 알 수 없는 조각이 있어 멈춥니다 (${entry.date} slot ${entry.slot}).`,
     list,
     `채널 ${CHAT_ID}에서 이 조각이 올라갔는지 직접 확인하세요.`,
     `  - 올라갔으면: ${stateFile}에서 해당 조각의 status를 "sent"로 바꾼 뒤 다시 실행`,
@@ -257,10 +245,11 @@ export function parsePostArgs(argv) {
 }
 
 export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => new Date(), sleep, log = console.log, warn = console.error } = {}) {
-  const { mode, file, dryRun, forceUncertain } = parsePostArgs(argv);
+  const { slot, file, dryRun, forceUncertain } = parsePostArgs(argv);
   if (dryRun) {
-    log(formatParts(buildPost(await loadData(file), { mode })));
-    return { status: 'dry-run' };
+    const parts = buildPost(await loadData(file), { slot });
+    log(parts.length ? formatParts(parts) : emptySlotMessage(slot));
+    return { status: parts.length ? 'dry-run' : 'empty' };
   }
 
   const token = extractToken(env.TELEGRAM_BOT_TOKEN);
@@ -272,17 +261,22 @@ export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => 
   const release = await acquireLock(lockFile, { now: () => now().getTime() });
   try {
     let entries = await readState(stateFile);
-    if (isDuplicate(entries, date, mode)) {
-      log(`이미 올린 포스트입니다 (${date} ${mode}). 건너뜁니다.`);
+    if (isDuplicate(entries, date, slot)) {
+      log(`이미 올린 포스트입니다 (${date} slot ${slot}). 건너뜁니다.`);
       return { status: 'duplicate' };
     }
-    let entry = findEntry(entries, date, mode);
-    if (!entry || isLegacy(entry)) {
-      entry = snapshotEntry(date, mode, buildPost(await loadData(file), { mode }), entry);
+    let entry = findEntry(entries, date, slot);
+    if (!entry) {
+      const texts = buildPost(await loadData(file), { slot });
+      if (!texts.length) {
+        log(emptySlotMessage(slot));
+        return { status: 'empty' };
+      }
+      entry = snapshotEntry(date, slot, texts);
       entries = upsertEntry(entries, entry);
       await writeState(stateFile, entries);
     } else {
-      log(`저장된 스냅샷으로 이어서 보냅니다 (${date} ${mode}, ${sentIds(entry).length}/${entry.parts.length}개 조각 전송됨).`);
+      log(`저장된 스냅샷으로 이어서 보냅니다 (${date} slot ${slot}, ${sentIds(entry).length}/${entry.parts.length}개 조각 전송됨).`);
     }
 
     try {
@@ -296,7 +290,7 @@ export async function run({ argv = [], env = {}, fetchImpl = fetch, now = () => 
         sleep,
         log: (m) => warn(sanitize(m, token)),
       });
-      log(`전송 완료 (${date} ${mode}, ${ids.length}개 조각, message_id ${ids.join(', ')})`);
+      log(`전송 완료 (${date} slot ${slot}, ${ids.length}개 조각, message_id ${ids.join(', ')})`);
       return { status: 'sent', ids };
     } catch (e) {
       if (e instanceof UncertainError) throw new Error(uncertainHelp(entry, stateFile));

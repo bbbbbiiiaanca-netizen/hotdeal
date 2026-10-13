@@ -1,5 +1,6 @@
 // deals.json으로 텔레그램 채널 포스트(일반 텍스트)를 만드는 스크립트 (Node 18+, 외부 패키지 없음)
-// 사용법: node scripts/make-post.mjs --mode morning|evening [--file deals.json]
+// 사용법: node scripts/make-post.mjs --slot 1|2|3|4 [--file deals.json]
+// 하루 4번(09·13·17·21시 KST) 올림. 할인율 높은 순 최대 20개를 5개씩 나눠 slot k에 k번째 묶음을 씀.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +10,9 @@ export const FOOTER = ['가격과 재고는 수시로 바뀌어요. 구매 전�
 export const TELEGRAM_LIMIT = 4096;
 export const TITLE_MAX = 200;
 export const CATEGORY_TAGS = { 육아: '#육아소모품', 뷰티: '#뷰티', 생활: '#생활주방', 반려동물: '#반려동물', 패션잡화: '#패션잡화' };
-const COUNTS = { morning: 20, evening: 3 };
+export const SLOTS = 4;
+export const PER_SLOT = 5;
+const isSlot = (k) => Number.isInteger(k) && k >= 1 && k <= SLOTS;
 
 export const DEFAULT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'deals.json');
 
@@ -56,27 +59,28 @@ export function priceLine(d) {
   return formatWon(wonPrice(d.salePrice)) + (notes.length ? ` (${notes.join(', ')})` : '');
 }
 
-// morning: top:true 먼저, 나머지는 파일 순서로 최대 20개
-// evening: morning에 쓴 것 다음 3개, 부족하면 파일 순서 첫 3개
-export function pickDeals(deals, mode) {
-  if (!COUNTS[mode]) throw new Error(`mode는 morning 또는 evening이어야 합니다: ${mode}`);
-  const valid = (deals || []).filter(isValid);
-  const ordered = [...valid.filter((d) => d.top === true), ...valid.filter((d) => d.top !== true)];
-  if (mode === 'morning') return ordered.slice(0, COUNTS.morning);
-  const rest = ordered.slice(COUNTS.morning);
-  return rest.length >= COUNTS.evening ? rest.slice(0, COUNTS.evening) : valid.slice(0, COUNTS.evening);
+// 유효한 상품을 할인율 높은 순으로(할인율 없으면 뒤로, 같으면 파일 순서) 최대 20개
+export function rankDeals(deals) {
+  const pct = (d) => discountPct(d.salePrice, d.originalPrice) ?? -1;
+  return (deals || []).filter(isValid).sort((a, b) => pct(b) - pct(a)).slice(0, SLOTS * PER_SLOT);
+}
+
+// slot k(1~4)는 순위 5(k-1)+1 ~ 5k번째. 상품이 모자라면 빈 배열
+export function pickDeals(deals, slot) {
+  if (!isSlot(slot)) throw new Error(`slot은 1~${SLOTS} 사이 정수여야 합니다: ${slot}`);
+  return rankDeals(deals).slice((slot - 1) * PER_SLOT, slot * PER_SLOT);
 }
 
 // 메시지 조각(part) 배열을 돌려줌. 4096자를 넘으면 상품 단위로 나눔.
 // 첫 조각에 헤더, 마지막 조각에 안내 문구·전체 목록 링크, 모든 조각의 마지막 줄은 대가성 문구.
 // 헤더와 첫 상품이 한 메시지에 안 들어가면 헤더만 따로 첫 조각이 됨.
-export function buildPost(data, { mode = 'morning', date } = {}) {
-  const items = pickDeals(data?.deals, mode);
-  if (!items.length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
+// 유효한 상품이 아예 없으면 에러, 상품은 있는데 이 slot 몫이 없으면 빈 배열(건너뜀).
+export function buildPost(data, { slot, date } = {}) {
+  if (!rankDeals(data?.deals).length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
+  const items = pickDeals(data.deals, slot);
+  if (!items.length) return [];
   const md = kstMonthDay(date ?? data.updatedAt);
-  const header = mode === 'morning'
-    ? `🔥 ${md} 오늘의 핫딜 오이데~ TOP ${items.length}`
-    : `🌙 ${md} 아직 할인 중인 핫딜 오이데~ ${items.length}`;
+  const header = `🔥 ${md} 핫딜 오이데~ TOP ${items.length} (${slot}/${SLOTS})`;
 
   const blocks = items.map((d, i) => {
     const lines = [`${i + 1}) ${truncateTitle(d.title)}`, `   ${priceLine(d)}`, `   ${d.url.trim()}`];
@@ -113,19 +117,23 @@ export const formatParts = (parts) =>
   parts.length > 1 ? parts.map((p, i) => `----- part ${i + 1}/${parts.length} -----\n${p}`).join('\n') : parts[0];
 
 export function parseArgs(argv) {
-  const args = { mode: 'morning', file: DEFAULT_FILE, dryRun: false };
+  const args = { slot: null, file: DEFAULT_FILE, dryRun: false };
+  let slot;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--mode') args.mode = argv[++i];
-    else if (a.startsWith('--mode=')) args.mode = a.slice(7);
+    if (a === '--slot') slot = argv[++i];
+    else if (a.startsWith('--slot=')) slot = a.slice(7);
     else if (a === '--file') args.file = argv[++i];
     else if (a.startsWith('--file=')) args.file = a.slice(7);
     else if (a === '--dry-run') args.dryRun = true;
     else throw new Error(`알 수 없는 옵션: ${a}`);
   }
-  if (!COUNTS[args.mode]) throw new Error(`--mode는 morning 또는 evening이어야 합니다: ${args.mode}`);
+  args.slot = /^[1-9]$/.test(slot ?? '') ? Number(slot) : NaN;
+  if (!isSlot(args.slot)) throw new Error(`--slot은 1~${SLOTS} 중 하나여야 합니다: ${slot ?? '(없음)'}`);
   return args;
 }
+
+export const emptySlotMessage = (slot) => `slot ${slot}에 올릴 상품이 없습니다. 건너뜁니다.`;
 
 export async function loadData(file) {
   return JSON.parse(await fs.readFile(file, 'utf8'));
@@ -133,8 +141,9 @@ export async function loadData(file) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { mode, file } = parseArgs(process.argv.slice(2));
-    console.log(formatParts(buildPost(await loadData(file), { mode })));
+    const { slot, file } = parseArgs(process.argv.slice(2));
+    const parts = buildPost(await loadData(file), { slot });
+    console.log(parts.length ? formatParts(parts) : emptySlotMessage(slot));
   } catch (e) {
     console.error(e.message);
     process.exit(1);
