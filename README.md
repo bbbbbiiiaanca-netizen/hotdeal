@@ -13,6 +13,9 @@ deals.json        상품 데이터
 assets/style.css  디자인 (모바일 우선)
 assets/app.js     목록 렌더링, 필터, 정렬, 검색
 scripts/refresh-deals.mjs  쿠팡 API로 deals.json을 갱신하는 스크립트(스텁)
+scripts/make-post.mjs      텔레그램 포스트 글 생성
+scripts/post-telegram.mjs  텔레그램 채널에 전송 (중복 방지)
+tests/            node:test 테스트
 screens/          스크린샷
 ```
 
@@ -60,6 +63,19 @@ COUPANG_ACCESS_KEY=xxx COUPANG_SECRET_KEY=yyy COUPANG_SUB_ID=mychannel \
 - **호출 제한 (반드시 지키기)**: 검색 API는 1시간당 10회, 전체 API는 1분당 100회입니다. 넘으면 24시간 정지되고, 경고가 쌓이면 파트너스 이용 자체가 제한될 수 있습니다. 스크립트는 하루 1~2회만 돌리세요.
 - 검색 API는 현재가(`productPrice`)만 주고 정상가는 주지 않는 경우가 많습니다. 정상가가 없으면 할인 배지가 숨겨집니다.
 - 자동화: GitHub Actions에 하루 1회 cron 작업을 만들고 키는 Repository Secrets에 넣은 뒤, 갱신된 deals.json을 커밋하면 Cloudflare Pages가 자동으로 다시 배포합니다. **키를 코드나 저장소에 절대 넣지 마세요.**
+
+## 3-1. 텔레그램 채널 자동 포스팅
+`deals.json`으로 @hotdeal_oide 채널에 올릴 글(일반 텍스트)을 만들고 보냅니다.
+```bash
+node scripts/make-post.mjs --mode morning            # 아침: TOP 딜 우선 최대 5개
+node scripts/make-post.mjs --mode evening --file deals.json   # 저녁: 아침 다음 3개
+node scripts/post-telegram.mjs --mode morning --dry-run       # 메시지만 출력 (토큰·네트워크 없음)
+TELEGRAM_BOT_TOKEN=... node scripts/post-telegram.mjs --mode morning
+```
+- 글 첫 줄에는 항상 대가성 문구가 들어갑니다. 링크 미리보기는 끕니다.
+- 같은 날(KST) 같은 mode는 한 번만 올립니다. 기록은 `state/posted.json`(깃 제외, `STATE_FILE`로 경로 변경 가능)에 남습니다.
+- 전송이 실패하면 3초 뒤 한 번 더 시도합니다. 토큰은 출력·로그에 남기지 않습니다.
+- 테스트: `node --test tests/`
 
 ## 4. 대가성 문구 (법적 의무)
 공정위 「추천·보증 등에 관한 표시·광고 심사지침」(2024.12.1 개정 시행)에 따라 경제적 이해관계를 **게시물의 제목이나 첫 부분**에, 본문과 구분되게(글자 크기·색을 다르게) 표시해야 합니다. "받을 수 있습니다" 같은 조건부 표현은 안 됩니다.
