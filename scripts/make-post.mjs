@@ -7,14 +7,24 @@ import { fileURLToPath } from 'node:url';
 export const DISCLOSURE = '이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.';
 export const FOOTER = ['가격과 재고는 수시로 바뀌어요. 구매 전에 쿠팡에서 확인하세요.', '전체 목록: https://hotdeal.sooinlab.com/'];
 export const TELEGRAM_LIMIT = 4096;
+export const TITLE_MAX = 200;
 export const CATEGORY_TAGS = { 육아: '#육아소모품', 뷰티: '#뷰티', 생활: '#생활주방', 반려동물: '#반려동물', 패션잡화: '#패션잡화' };
 const COUNTS = { morning: 20, evening: 3 };
 
 export const DEFAULT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'deals.json');
 
-const isValid = (d) => d && typeof d.title === 'string' && d.title.trim() && Number.isFinite(d.salePrice) && d.salePrice > 0 && typeof d.url === 'string' && d.url.trim();
+// 판매가는 원 단위 양의 정수로 반올림. 0 이하·숫자 아님이면 null
+export const wonPrice = (n) => (Number.isFinite(n) && Math.round(n) > 0 ? Math.round(n) : null);
+
+const isValid = (d) => d && typeof d.title === 'string' && d.title.trim() && wonPrice(d.salePrice) !== null && typeof d.url === 'string' && d.url.trim();
 
 export const formatWon = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원';
+
+// 긴 제목은 max자(코드 포인트 기준, '…' 포함)로 자름. 서로게이트 쌍(이모지 등)을 반으로 쪼개지 않음
+export function truncateTitle(title, max = TITLE_MAX) {
+  const chars = Array.from(String(title).trim());
+  return chars.length <= max ? chars.join('') : chars.slice(0, max - 1).join('').trimEnd() + '…';
+}
 
 // KST 기준 "M/D" (0 채움 없음)
 export function kstMonthDay(date) {
@@ -29,14 +39,21 @@ function priceLabel(d) {
   return '';
 }
 
+// 할인율: 정상가 > 판매가일 때만, 반올림해서 0%면 생략, 100%로 반올림되면 99%로 맞춤
+export function discountPct(salePrice, originalPrice) {
+  const sale = wonPrice(salePrice);
+  if (sale === null || !Number.isFinite(originalPrice) || originalPrice <= sale) return null;
+  const pct = Math.min(99, Math.round((1 - sale / originalPrice) * 100));
+  return pct > 0 && pct < 100 ? pct : null;
+}
+
 export function priceLine(d) {
   const notes = [];
-  if (Number.isFinite(d.originalPrice) && d.originalPrice > d.salePrice) {
-    notes.push(`-${Math.round((1 - d.salePrice / d.originalPrice) * 100)}%`);
-  }
+  const pct = discountPct(d.salePrice, d.originalPrice);
+  if (pct !== null) notes.push(`-${pct}%`);
   const label = priceLabel(d);
   if (label) notes.push(label);
-  return formatWon(d.salePrice) + (notes.length ? ` (${notes.join(', ')})` : '');
+  return formatWon(wonPrice(d.salePrice)) + (notes.length ? ` (${notes.join(', ')})` : '');
 }
 
 // morning: top:true 먼저, 나머지는 파일 순서로 최대 20개
@@ -52,6 +69,7 @@ export function pickDeals(deals, mode) {
 
 // 메시지 조각(part) 배열을 돌려줌. 4096자를 넘으면 상품 단위로 나눔.
 // 첫 조각에 헤더, 마지막 조각에 안내 문구·전체 목록 링크, 모든 조각의 마지막 줄은 대가성 문구.
+// 헤더와 첫 상품이 한 메시지에 안 들어가면 헤더만 따로 첫 조각이 됨.
 export function buildPost(data, { mode = 'morning', date } = {}) {
   const items = pickDeals(data?.deals, mode);
   if (!items.length) throw new Error('포스트에 넣을 수 있는 상품이 없습니다 (title/salePrice/url 필요).');
@@ -61,7 +79,7 @@ export function buildPost(data, { mode = 'morning', date } = {}) {
     : `🌙 ${md} 아직 할인 중인 핫딜 오이데~ ${items.length}`;
 
   const blocks = items.map((d, i) => {
-    const lines = [`${i + 1}) ${d.title.trim()}`, `   ${priceLine(d)}`, `   ${d.url.trim()}`];
+    const lines = [`${i + 1}) ${truncateTitle(d.title)}`, `   ${priceLine(d)}`, `   ${d.url.trim()}`];
     const tag = CATEGORY_TAGS[d.category];
     if (tag) lines.push(`   ${tag}`);
     return lines.join('\n');
@@ -74,7 +92,7 @@ export function buildPost(data, { mode = 'morning', date } = {}) {
   let cur = [header];
   for (const block of blocks) {
     const next = [...cur, block];
-    if (cur.length > (groups.length ? 0 : 1) && [...next, lastTail].join('\n\n').length > TELEGRAM_LIMIT) {
+    if ([...next, lastTail].join('\n\n').length > TELEGRAM_LIMIT) {
       groups.push(cur);
       cur = [block];
     } else {

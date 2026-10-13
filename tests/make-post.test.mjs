@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPost, formatParts, pickDeals, priceLine, kstMonthDay, DISCLOSURE, FOOTER, DEFAULT_FILE, loadData } from '../scripts/make-post.mjs';
-import { isDuplicate, findEntry, sentIds, upsertEntry, sendParts, sanitize, isValidToken, extractToken, withRetry, kstDate } from '../scripts/post-telegram.mjs';
+import { buildPost, formatParts, pickDeals, priceLine, kstMonthDay, truncateTitle, discountPct, DISCLOSURE, FOOTER, DEFAULT_FILE, loadData } from '../scripts/make-post.mjs';
 
 const deal = (id, extra = {}) => ({
   id, title: `상품 ${id}`, category: '육아', originalPrice: 47100, salePrice: 22250,
@@ -83,8 +82,57 @@ test('title/salePrice/url 없는 상품은 건너뜀', () => {
   assert.throws(() => buildPost(data([deal('x', { url: '' })])));
 });
 
-test('상품 하나가 4096자를 넘으면 에러', () => {
-  assert.throws(() => buildPost(data([deal('a', { title: 'x'.repeat(5000) })])), /4096/);
+test('긴 제목은 200자로 자르고 … 붙임 (서로게이트 쌍 안 쪼갬)', () => {
+  assert.equal(truncateTitle('짧은 제목'), '짧은 제목');
+  assert.equal(truncateTitle('x'.repeat(200)), 'x'.repeat(200));
+  const cut = truncateTitle('x'.repeat(5000));
+  assert.equal(Array.from(cut).length, 200);
+  assert.ok(cut.endsWith('…'));
+  // 이모지(서로게이트 쌍)가 경계에 걸려도 깨진 글자가 남지 않음
+  const emoji = truncateTitle('😀'.repeat(300));
+  assert.equal(emoji, '😀'.repeat(199) + '…');
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(truncateTitle('a' + '😀'.repeat(300))));
+  // 제목이 아무리 길어도 한 메시지에 들어감
+  const parts = buildPost(data([deal('a', { title: 'x'.repeat(50000) })]));
+  assert.equal(parts.length, 1);
+  assert.ok(parts[0].includes(`1) ${'x'.repeat(199)}…\n`));
+});
+
+test('헤더와 첫 상품이 한 메시지에 안 들어가면 헤더만 따로 첫 조각', () => {
+  // URL이 매우 길어서 상품 하나가 헤더와 같이 못 들어가는 경우
+  const longUrl = 'https://link.coupang.com/a/' + 'u'.repeat(3900);
+  const parts = buildPost(data([deal('a', { url: longUrl }), deal('b')]));
+  assert.equal(parts.length, 3);
+  assert.equal(parts[0], `🔥 10/13 오늘의 핫딜 오이데~ TOP 2\n\n${DISCLOSURE}`);
+  assert.ok(parts[1].startsWith('1) 상품 a'));
+  for (const p of parts) {
+    assert.ok(p.length <= 4096);
+    assert.equal(p.split('\n').at(-1), DISCLOSURE);
+  }
+  // 상품 하나만으로 한도를 넘으면 여전히 에러
+  assert.throws(() => buildPost(data([deal('a', { url: 'https://x/' + 'u'.repeat(5000) })])), /4096/);
+});
+
+test('판매가는 원 단위 양의 정수, 0 이하·숫자 아님은 건너뜀', () => {
+  const deals = [deal('a', { salePrice: 0 }), deal('b', { salePrice: -100 }), deal('c', { salePrice: 0.4 }), deal('d', { salePrice: NaN }), deal('e', { salePrice: '1000' }), deal('f', { salePrice: 9999.6 })];
+  assert.deepEqual(pickDeals(deals, 'morning').map((d) => d.id), ['f']);
+  assert.equal(priceLine(deal('f', { salePrice: 9999.6, originalPrice: undefined })), '10,000원');
+  assert.ok(one(data(deals)).includes('   10,000원 (-79%)\n'));
+});
+
+test('할인율은 0<pct<100이고 정상가 > 판매가일 때만', () => {
+  assert.equal(discountPct(22250, 47100), 53);
+  assert.equal(discountPct(1, 100000), 99); // 99.999% → 100으로 반올림되지 않게 99
+  assert.equal(discountPct(9990, 10000), null); // 0.1% → 0%면 생략
+  assert.equal(discountPct(100, 100), null);
+  assert.equal(discountPct(200, 100), null);
+  assert.equal(discountPct(100, NaN), null);
+  assert.equal(discountPct(100, -5), null);
+  assert.equal(discountPct(0, 100), null);
+  // 판매가 반올림 뒤 정상가와 같아지면 생략
+  assert.equal(discountPct(99.6, 100), null);
+  assert.equal(priceLine(deal('a', { salePrice: 1, originalPrice: 1e9 })), '1원 (-99%)');
+  assert.equal(priceLine(deal('a', { salePrice: 9990, originalPrice: 10000 })), '9,990원');
 });
 
 test('4096자를 넘으면 상품 단위로 나누고, 모든 조각의 마지막 줄은 대가성 문구', () => {
@@ -124,74 +172,4 @@ test('실제 deals.json으로 morning 전체(최대 20), evening 3개', async ()
     assert.ok(p.length <= 4096);
     assert.equal(p.split('\n').at(-1), DISCLOSURE);
   }
-});
-
-test('post-telegram: 중복 방지 헬퍼', () => {
-  let entries = [];
-  assert.equal(isDuplicate(entries, '2026-10-13', 'morning'), false);
-  entries = upsertEntry(entries, '2026-10-13', 'morning', 2, [101]);
-  assert.equal(isDuplicate(entries, '2026-10-13', 'morning'), false); // 2개 중 1개만 보냄
-  assert.deepEqual(sentIds(findEntry(entries, '2026-10-13', 'morning')), [101]);
-  entries = upsertEntry(entries, '2026-10-13', 'morning', 2, [101, 102]);
-  assert.deepEqual(entries, [{ date: '2026-10-13', mode: 'morning', parts: 2, message_ids: [101, 102] }]);
-  assert.equal(isDuplicate(entries, '2026-10-13', 'morning'), true);
-  assert.equal(isDuplicate(entries, '2026-10-13', 'evening'), false);
-  assert.equal(isDuplicate(entries, '2026-10-14', 'morning'), false);
-  // 예전 형식 기록도 다 보낸 것으로 봄
-  const legacy = [{ date: '2026-10-12', mode: 'evening', message_id: 9 }];
-  assert.equal(isDuplicate(legacy, '2026-10-12', 'evening'), true);
-  assert.deepEqual(sentIds(legacy[0]), [9]);
-  assert.equal(kstDate(new Date('2026-10-12T15:30:00Z')), '2026-10-13');
-});
-
-test('post-telegram: 조각을 순서대로 보내고, 이미 보낸 조각은 다시 안 보냄', async () => {
-  const sent = [];
-  const saved = [];
-  let id = 200;
-  const send = async (text) => { sent.push(text); return ++id; };
-  const ids = await sendParts(['a', 'b', 'c'], { alreadySent: [101], send, onSent: (x) => saved.push(x) });
-  assert.deepEqual(sent, ['b', 'c']);
-  assert.deepEqual(ids, [101, 201, 202]);
-  assert.deepEqual(saved, [[101, 201], [101, 201, 202]]);
-
-  // 두 번째 조각이 두 번 다 실패하면 첫 조각까지만 저장되고 에러
-  const progress = [];
-  let calls = 0;
-  const flaky = async (text) => { calls++; if (text === 'b') throw new Error('down'); return 1; };
-  await assert.rejects(
-    sendParts(['a', 'b', 'c'], { send: flaky, onSent: (x) => progress.push(x), retry: () => ({ sleep: async () => {} }) }),
-    /down/,
-  );
-  assert.equal(calls, 3); // a 1번 + b 2번(재시도 1회), c는 안 보냄
-  assert.deepEqual(progress, [[1]]);
-});
-
-test('post-telegram: 토큰 검사와 에러 문구 정리', () => {
-  const token = '123456789:' + 'A'.repeat(35);
-  assert.ok(isValidToken(token));
-  assert.ok(!isValidToken('123:short'));
-  assert.ok(!isValidToken(''));
-  assert.ok(!isValidToken(` ${token} `));
-  assert.equal(extractToken(token), token);
-  assert.equal(extractToken(`  ${token}\n`), token);
-  assert.equal(extractToken(`TELEGRAM_BOT_TOKEN=${token} # 봇 토큰`), token);
-  assert.equal(extractToken(`"${token}" 987654321:${'B'.repeat(35)}`), token);
-  assert.equal(extractToken('토큰 없음 123:short'), null);
-  assert.equal(extractToken(undefined), null);
-  const msg = sanitize(`request to https://api.telegram.org/bot${token}/sendMessage failed`, token);
-  assert.ok(!msg.includes(token));
-  assert.ok(!msg.includes('AAAAAAAAAA'));
-  assert.ok(!msg.includes('123456789'));
-});
-
-test('post-telegram: 실패 시 한 번만 재시도', async () => {
-  let calls = 0;
-  const waits = [];
-  const ok = await withRetry(async () => { if (++calls === 1) throw new Error('x'); return 7; }, { sleep: async (ms) => waits.push(ms) });
-  assert.equal(ok, 7);
-  assert.equal(calls, 2);
-  assert.deepEqual(waits, [3000]);
-  calls = 0;
-  await assert.rejects(withRetry(async () => { calls++; throw new Error('y'); }, { sleep: async () => {} }), /y/);
-  assert.equal(calls, 2);
 });
