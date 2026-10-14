@@ -2,8 +2,6 @@
 *{box-sizing:border-box}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:var(--ink);background:var(--bg);line-height:1.5}
 a{color:inherit}
-.disclosure{background:#fff4e5;color:#7a3e00;font-size:14px;font-weight:600;padding:10px 16px;text-align:center;border-bottom:1px solid #ffd8a8}
-.disclosure strong{background:#ff8a00;color:#fff;border-radius:4px;padding:1px 6px;margin-right:6px;font-size:12px}
 .top{display:flex;flex-wrap:nowrap;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
 .logo{font-size:20px;text-decoration:none;font-weight:700;white-space:nowrap;min-width:0}.logo b{color:var(--brand)}
 .tg-ico{display:inline-flex;flex:none;width:36px;height:36px;border-radius:50%;line-height:0}
@@ -13,6 +11,9 @@ a{color:inherit}
 .tg-btn{display:inline-flex;align-items:center;gap:4px;background:#1A6FA0;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:999px;padding:7px 14px;white-space:nowrap}
 .tg-btn:hover{filter:brightness(.95)}
 .foot .tg-btn{font-size:14px;padding:9px 18px}
+.foot .disclosure{color:#4b5563;font-size:11px;letter-spacing:-.06em;white-space:nowrap;margin:12px -12px 0}
+.foot .disclosure strong{display:inline-block;background:#c2410c;color:#fff;border-radius:3px;padding:0 4px;margin-right:3px;letter-spacing:0;line-height:1.5}
+@media (max-width:389px){.foot .disclosure{white-space:normal;margin-inline:0}}
 .wrap{max-width:1100px;margin:0 auto;padding:16px}
 .sample{background:#eef4ff;border:1px solid #c7d7fe;color:#1e3a8a;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px}
 .hero h1{font-size:24px;margin:4px 0}
