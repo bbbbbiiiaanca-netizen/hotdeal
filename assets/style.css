@@ -86,3 +86,5 @@ body.my-lock{overflow:hidden}
 @keyframes now-price-shine{0%{left:-60%}60%,100%{left:120%}}
 @keyframes now-price-glow{0%,100%{box-shadow:0 4px 14px rgba(255,77,31,.35)}50%{box-shadow:0 4px 22px rgba(255,77,31,.6)}}
 @media(prefers-reduced-motion:reduce){.btn-now-price,.btn-now-price::after{animation:none}.btn-now-price::after{display:none}}
+/* 품목 페이지: 휴대폰에서는 카드 한 줄에 하나 → "쿠팡에서 지금 가격 보기" 버튼이 화면 폭 가득 */
+@media(max-width:600px){.item-grid{grid-template-columns:1fr}.item-grid .btn-now-price{max-width:none}}

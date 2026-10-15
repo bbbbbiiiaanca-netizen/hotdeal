@@ -121,7 +121,7 @@ function card(d, item, seenNote) {
       <div class="tags"><span class="tag">${esc(item.category)}</span>${seenNote ? `<span class="tag">${esc(seenNote)}</span>` : ''}${stockRush(d) ? '<span class="tag">품절대란</span>' : ''}</div>
       <h3>${esc(d.title)}</h3>
       <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b>${p ? ` <span class="muted">${p}% 할인</span>` : ''}</div>
-      <a class="btn" href="${esc(href)}"${missing} target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기</a>
+      <a class="btn-now-price" data-track="1" data-id="${esc(d.id ?? '')}" data-cat="${esc(d.category ?? item.category)}" data-title="${esc(d.title)}" href="${esc(href)}"${missing} target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
     </div></article>`;
 }
 
@@ -182,7 +182,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   let body;
   if (today.length) {
     body = `<h2 class="sec">오늘의 ${esc(kw)} 핫딜 ${today.length}개</h2>
-    <div class="grid">${today.map(d => card(d, item)).join('')}</div>`;
+    <div class="grid item-grid">${today.map(d => card(d, item)).join('')}</div>`;
   } else if (ended) {
     body = endedBody(item, history);
   } else {

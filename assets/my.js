@@ -158,4 +158,9 @@
     status.textContent = '추천 기록을 지웠어요.';
     changed();
   });
+  // 품목 페이지의 '쿠팡에서 지금 가격 보기'(data-track) 클릭도 메인 카드와 같은 recordClick·같은 저장소에 기록
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[data-track]');
+    if (a) recordClick({ category: a.dataset.cat, title: a.dataset.title || '' });
+  });
 })();

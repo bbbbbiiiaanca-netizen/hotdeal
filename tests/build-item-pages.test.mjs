@@ -96,7 +96,7 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   assert.match(html, /<b>19,300원<\/b>/);
   assert.match(html, /<s>30,000원<\/s>/);
   assert.match(html, /-36%/);
-  assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh1" data-subid-missing="1" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기/);
+  assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh1" data-subid-missing="1" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</);
   assert.match(html, /<link rel="canonical" href="https:\/\/hotdeal\.sooinlab\.com\/deal\/%ED%8C%AC%ED%9E%88%ED%84%B0\/">/);
   assert.match(html, /href="\/assets\/style\.css"/);
   assert.match(html, /2026년 10월 15일 07:33 \(KST\)/);
@@ -130,7 +130,8 @@ test('상태 (c): 기록 없음 → 준비 중, 가짜 상품 없음', () => {
   const html = page(root, '스마트TV');
   assert.match(html, /준비 중: 아직 이 품목의 확인된 쿠팡 파트너스 상품이 없어요\. 매일 아침 갱신 때 들어오면 여기에 표시됩니다\./);
   assert.doesNotMatch(html, /class="card"/);
-  assert.doesNotMatch(html, /쿠팡에서 보기/);
+  assert.doesNotMatch(html, /쿠팡에서 (지금 가격 )?보기/);
+  assert.doesNotMatch(html, /data-track/);
   rmSync(root, { recursive: true });
 });
 
@@ -565,7 +566,7 @@ test('끝난 딜 → 새 딜: 같은 URL에서 다시 오늘 딜로, 끝난 딜 
   const html = page(root, '팬히터');
   assert.doesNotMatch(html, /끝난 딜/);
   assert.match(html, /오늘의 팬히터 핫딜 1개/);
-  assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh2"[^>]*>쿠팡에서 보기/);
+  assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh2"[^>]*>쿠팡에서 지금 가격 보기</);
   assert.equal(titleOf(html), '팬히터 비교'); // 25,000원 > 기록 최저가 19,300원
   assert.ok(html.includes(`<link rel="canonical" href="${FH}">`));
   assert.deepEqual(readState(root).items['팬히터'].deals.map(d => d.url), ['https://link.coupang.com/a/fh2', 'https://link.coupang.com/a/fh1']);
@@ -622,4 +623,21 @@ test('h1: 품목 페이지마다 h1은 "{품목} 비교" 하나뿐, 로고는 h1
     assert.doesNotMatch(header, /<h1/);
     assert.match(header, /<a class="logo" href="\/">/);
   }
+});
+
+test('살아 있는 딜: 카드마다 큰 "쿠팡에서 지금 가격 보기" 버튼, 클릭 기록용 data-id·data-cat', () => {
+  const root = site([deal('fh1', '신일 팬히터 SFH-1')]);
+  buildAll({ root, now: D1 });
+  const html = page(root, '팬히터');
+  assert.match(html, /<a class="btn-now-price" data-track="1" data-id="fh1" data-cat="[^"]+" data-title="신일 팬히터 SFH-1" href="https:\/\/link\.coupang\.com\/a\/fh1"/);
+  assert.doesNotMatch(html, /class="btn"/);
+  assert.equal(html.match(/<h1>/g).length, 1);
+  assert.equal((html.match(/t\.me\//g) || []).length, 1);
+  rmSync(root, { recursive: true });
+});
+
+test('my.js: data-track 클릭을 메인 카드와 같은 recordClick으로 기록', () => {
+  const js = readFileSync(new URL('../assets/my.js', import.meta.url), 'utf8');
+  assert.match(js, /closest\('a\[data-track\]'\)/);
+  assert.match(js, /recordClick\(\{ category: a\.dataset\.cat/);
 });
