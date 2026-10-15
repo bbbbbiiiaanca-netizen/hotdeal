@@ -606,3 +606,20 @@ test('style.css: .btn-now-price는 일반 흐름 버튼, 반짝임은 버튼 안
   assert.doesNotMatch(css, /\.btn-now-price[^{]*\{[^}]*position:(fixed|sticky)/);
   assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{\.btn-now-price,\.btn-now-price::after\{animation:none\}/);
 });
+
+test('h1: 품목 페이지마다 h1은 "{품목} 비교" 하나뿐, 로고는 h1 밖의 일반 링크', () => {
+  const pages = [
+    renderPage({ ...R, today: [deal('n', '팬히터 n')], history: [H('n', 25000, '2026-10-15T07:33:00+09:00')] }),
+    renderPage({ ...R, today: [], history: [H('last', 19300, '2026-10-14T07:33:00+09:00')] }),
+    renderPage({ ...R, today: [], history: [] }),
+  ];
+  for (const html of pages) {
+    const h1s = [...html.matchAll(/<h1[\s>][\s\S]*?<\/h1>/g)].map(m => m[0]);
+    assert.equal(h1s.length, 1);
+    assert.match(h1s[0], /^<h1>팬히터 비교( 최저가 \(\d{4}-\d{2}-\d{2} 기준, 우리 기록\))?<\/h1>$/);
+    assert.doesNotMatch(html, /logo-h1/);
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    assert.doesNotMatch(header, /<h1/);
+    assert.match(header, /<a class="logo" href="\/">/);
+  }
+});
