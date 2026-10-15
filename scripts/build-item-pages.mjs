@@ -147,7 +147,7 @@ export function lowestNow({ today, history, minSalePrice, updatedAt }) {
 
 /**
  * 오늘 딜이 끝난 품목: 마지막 딜과 최근 딜 기록은 링크 없는 텍스트(날짜·가격)로만 보여 준다.
- * 쿠팡 링크는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(.btn-now-price, 카드 구매 버튼 .btn 아님). 고지문은 버튼 바로 아래.
+ * 쿠팡 링크는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(.btn-now-price, 카드 구매 버튼 .btn 아님). 고지문은 푸터에 한 번만.
  */
 function endedBody(item, history) {
   const kw = item.keyword;
@@ -160,7 +160,6 @@ function endedBody(item, history) {
       <p>기록 가격 <b>${won(last.salePrice)}</b> <span class="muted">(${kstDate(last.seenAt)} 확인, 지난 기록)</span></p>
       <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a></p>
       <a class="btn-now-price" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
-      <p class="muted ended-disclosure">${DISCLOSURE}</p>
     </div>
     <h2 class="sec">최근 딜 기록</h2>
     <ul class="recent-deals">${rows}</ul>`;
@@ -168,6 +167,9 @@ function endedBody(item, history) {
 
 /**
  * 페이지 HTML. 오늘 딜 → 오늘 딜 목록, 없고 기록 있음 → 끝난 딜 + 최근 딜 기록, 둘 다 없음 → 준비 중(noindex).
+ * 헤더·푸터는 index.html과 같은 마크업(경로만 /로 시작). 쿠팡 파트너스 고지문은 푸터에 한 번만.
+ * MY 버튼은 assets/my.js만 싣는다(설정은 이 브라우저에 저장돼 메인 추천에 반영). app.js는 #q·#sort와
+ * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
  * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 최저가 이하일 때만 ' 최저가 (YYYY-MM-DD 기준, 우리 기록)'을 붙인다.
  */
 export function renderPage({ item, items, today, history, updatedAt, minSalePrice }) {
@@ -218,10 +220,9 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-<div class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</div>
 <header class="top">
-  <a class="logo" href="/index.html">🔥 핫딜 <b>오이데</b></a>
-  <div class="top-r"><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ Telegram으로 매일 받기</a><nav><a href="/about.html">소개</a><a href="/privacy.html">개인정보처리방침</a></nav></div>
+  <a class="logo" href="/"><picture><source srcset="/assets/logo.webp" type="image/webp"><img src="/assets/logo.png" alt="핫딜 오이데" width="178" height="44" decoding="async" fetchpriority="high"></picture></a>
+  <div class="top-act"><button type="button" class="my-btn" id="myBtn" aria-haspopup="dialog" aria-expanded="false" aria-label="MY 맞춤 설정"><span aria-hidden="true">MY</span></button><a class="tg-ico" href="${TG_URL}" target="_blank" rel="noopener" aria-label="텔레그램 채널"><svg aria-hidden="true" focusable="false" width="36" height="36" viewBox="0 0 240 240"><circle cx="120" cy="120" r="120" fill="#229ED9"/><path fill="#fff" d="M53.8 117.6c35-15.2 58.3-25.3 70-30.2 33.3-13.9 40.2-16.3 44.7-16.4 1 0 3.2.2 4.7 1.4 1.2 1 1.5 2.3 1.7 3.3.2.9.4 3.1.2 4.8-1.8 19-9.6 65.1-13.6 86.4-1.7 9-5 12-8.2 12.3-7 .6-12.3-4.6-19-9-10.6-6.9-16.5-11.2-26.8-18-11.9-7.8-4.2-12.1 2.6-19.1 1.8-1.8 32.5-29.8 33.1-32.3.1-.3.1-1.5-.6-2.1-.7-.6-1.7-.4-2.5-.2-1.1.2-17.9 11.4-50.6 33.5-4.8 3.3-9.1 4.9-13 4.8-4.3-.1-12.5-2.4-18.7-4.4-7.5-2.4-13.5-3.7-13-7.9.3-2.2 3.3-4.4 8.9-6.7z"/></svg></a></div>
 </header>
 <main class="wrap">
   <section class="hero">
@@ -244,10 +245,12 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   </section>
 </main>
 <footer class="foot">
+  <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ Telegram으로 매일 받기</a></p>
+  <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
   <p>가격과 재고는 수시로 바뀝니다. 구매 전 쿠팡 상품 페이지에서 꼭 확인하세요.</p>
-  <p><a href="/index.html">홈</a> · <a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
-  <p>${DISCLOSURE}</p>
+  <p><a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
 </footer>
+<script src="/assets/my.js"></script>
 </body>
 </html>
 `;

@@ -7,6 +7,13 @@ import { execFileSync } from 'node:child_process';
 import { withSubId, matchDeals, titleMatches, mergeHistory, buildAll, flushIndexNow, readPending, pageUrl, renderPage, isIndexable, NOINDEX_META, DISCLOSURE, HISTORY_MAX } from '../scripts/build-item-pages.mjs';
 import { sameOriginUrls } from '../scripts/indexnow-submit.mjs';
 
+/** 쿠팡 파트너스 고지문: 페이지 전체에서 정확히 1번, 푸터 안에 메인과 같은 문단으로 */
+function assertDisclosureOnceInFooter(html, msg) {
+  assert.equal(html.split(DISCLOSURE).length - 1, 1, msg);
+  const footer = html.slice(html.indexOf('<footer class="foot">'), html.indexOf('</footer>'));
+  assert.ok(footer.includes(`<p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>`), msg);
+}
+
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://hotdeal.sooinlab.com/</loc><lastmod>2026-10-11</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>
@@ -94,8 +101,7 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   assert.match(html, /href="\/assets\/style\.css"/);
   assert.match(html, /2026년 10월 15일 07:33 \(KST\)/);
   assert.match(html, /https:\/\/t\.me\/hotdeal_oide[^>]*>✈️ @hotdeal_oide 구독하고 매일 받기/);
-  assert.ok(html.includes(`<div class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</div>`));
-  assert.ok(html.trimEnd().endsWith(`<p>${DISCLOSURE}</p>\n</footer>\n</body>\n</html>`));
+  assertDisclosureOnceInFooter(html);
   rmSync(root, { recursive: true });
 });
 
@@ -448,9 +454,9 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   const NOW_BTN = '<a class="btn-now-price" href="https://link.coupang.com/a/last" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>';
   assert.ok(ended.includes(NOW_BTN));
   assert.doesNotMatch(ended, /class="chip"/);
-  // 고지문은 버튼 바로 다음 문단(일반 흐름이라 겹치지 않음)
-  assert.ok(ended.includes(`${NOW_BTN}\n      <p class="muted ended-disclosure">${DISCLOSURE}</p>`));
-  assert.ok(ended.indexOf(NOW_BTN) < ended.indexOf(DISCLOSURE));
+  // 고지문은 버튼 아래가 아니라 푸터에만
+  assert.ok(!ended.includes(DISCLOSURE));
+  assert.doesNotMatch(html, /ended-disclosure/);
   // 라이브 구매 버튼·할인 배지·카드 없음
   assert.doesNotMatch(html, /class="btn"/);
   assert.doesNotMatch(html, /쿠팡에서 보기</);
@@ -465,10 +471,41 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   const dealAnchors = [...html.matchAll(/<a [^>]*href="https:\/\/link\.coupang\.com\/[^"]*"[^>]*>[^<]*<\/a>/g)].map(m => m[0]);
   assert.deepEqual(dealAnchors, [NOW_BTN]);
   assert.ok(!html.includes('https://link.coupang.com/a/old'));
-  // 색인 유지, 고지문은 상단·하단에도
+  // 색인 유지, 고지문은 푸터에 한 번
   assert.ok(!html.includes(NOINDEX_META));
-  assert.ok(html.includes(`<div class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</div>`));
-  assert.ok(html.includes(`<p>${DISCLOSURE}</p>\n</footer>`));
+  assertDisclosureOnceInFooter(html);
+});
+
+test('고지문: 오늘 딜·끝난 딜·준비 중 페이지 모두 정확히 1번, 푸터 안에 메인과 같은 마크업', () => {
+  const pages = {
+    current: renderPage({ ...R, today: [deal('n', '팬히터 n')], history: [H('n', 25000, '2026-10-15T07:33:00+09:00')] }),
+    ended: renderPage({ ...R, today: [], history: [H('last', 19300, '2026-10-14T07:33:00+09:00')] }),
+    never: renderPage({ ...R, today: [], history: [] }),
+  };
+  for (const [name, html] of Object.entries(pages)) {
+    assertDisclosureOnceInFooter(html, name);
+    // 예전 상단 광고 바·끝난 딜 버튼 아래 고지문 없음
+    assert.doesNotMatch(html, /<div class="disclosure"/, name);
+    assert.doesNotMatch(html, /ended-disclosure/, name);
+  }
+});
+
+test('헤더·푸터: 메인 index.html과 같은 마크업(경로만 절대경로), 로고는 /로, MY는 my.js만', () => {
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const abs = s => s.replace(/(src|srcset|href)="(assets\/|about\.html|privacy\.html)/g, '$1="/$2').replace('class="logo" href="index.html"', 'class="logo" href="/"');
+  const block = (s, open, close) => s.slice(s.indexOf(open), s.indexOf(close) + close.length);
+  const html = renderPage({ ...R, today: [], history: [] });
+  const header = block(html, '<header class="top">', '</header>');
+  assert.equal(header, abs(block(index, '<header class="top">', '</header>')));
+  assert.equal(block(html, '<footer class="foot">', '</footer>'), abs(block(index, '<footer class="foot">', '</footer>')));
+  // 헤더: 로고 그림(→ /), MY 버튼, 텔레그램 아이콘
+  assert.ok(header.includes('<a class="logo" href="/"><picture><source srcset="/assets/logo.webp" type="image/webp"><img src="/assets/logo.png" alt="핫딜 오이데"'));
+  assert.match(header, /<button type="button" class="my-btn" id="myBtn"/);
+  assert.match(header, /<a class="tg-ico" href="https:\/\/t\.me\/hotdeal_oide"[^>]*><svg /);
+  assert.doesNotMatch(header, /소개|개인정보처리방침|광고/);
+  // MY 모달은 my.js만으로 동작. app.js는 메인 전용 요소(#q·#sort)를 전제하므로 싣지 않음
+  assert.ok(html.includes('</footer>\n<script src="/assets/my.js"></script>\n</body>'));
+  assert.doesNotMatch(html, /app\.js/);
 });
 
 test('끝난 딜 배너: h1 바로 아래 큰 배너 하나, 작은 회색 배지 없음, 오늘 딜·준비 중 페이지엔 없음', () => {
@@ -477,10 +514,9 @@ test('끝난 딜 배너: h1 바로 아래 큰 배너 하나, 작은 회색 배�
   assert.ok(ended.includes(`<h1>팬히터 비교</h1>\n    ${BANNER}\n`));
   assert.equal(ended.split(BANNER).length - 1, 1);
   assert.doesNotMatch(ended, /class="tag ended"/);
-  // 나머지는 그대로: 기록 가격·텔레그램·지금 가격 버튼·고지문
+  // 나머지는 그대로: 기록 가격·텔레그램·지금 가격 버튼
   assert.match(ended, /기록 가격 <b>19,300원<\/b>/);
   assert.match(ended, /class="btn-now-price"/);
-  assert.match(ended, /class="muted ended-disclosure"/);
   const current = renderPage({ ...R, today: [deal('n', '팬히터 n')], history: [H('n', 25000, '2026-10-15T07:33:00+09:00')] });
   const never = renderPage({ ...R, today: [], history: [] });
   for (const html of [current, never]) {
