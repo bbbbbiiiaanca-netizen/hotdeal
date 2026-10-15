@@ -8,10 +8,11 @@ function thumb(d) {
     ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">`
     : `<div class="ph" aria-hidden="true">${d.emoji || '🛒'}</div>`;
 }
-function card(d) {
+function card(d, rank) {
   const p = pct(d);
+  const rk = rank >= 1 && rank <= 3 ? `<span class="rank rank-${rank}" aria-label="${rank}위">${rank}</span>` : '';
   return `<article class="card">
-    <div class="thumb">${thumb(d)}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
+    <div class="thumb">${thumb(d)}${rk}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
     <div class="body">
       <div class="tags"><span class="tag">${esc(d.category)}</span>${d.rocket ? "<span class=\"tag rocket\">로켓</span>" : ""}</div>
       <h3>${esc(d.title)}</h3>
@@ -42,7 +43,9 @@ function renderTop() {
   const base = visible();
   let top = base.filter(d => d.top);
   if (!top.length) top = all.filter(d => d.top);
-  document.getElementById('top').innerHTML = byRecommend(top).slice(0, 6).map(card).join('');
+  const list = byRecommend(top).slice(0, 6);
+  document.getElementById('topBox').hidden = !list.length;
+  document.getElementById('top').innerHTML = list.map((d, i) => card(d, i + 1)).join('');
 }
 function render() {
   const q = document.getElementById('q').value.trim().toLowerCase();
@@ -54,7 +57,7 @@ function render() {
   if (sort === 'recommend') byRecommend(list);
   else if (sort === 'discount') list.sort((a, b) => pct(b) - pct(a));
   else list.sort(sort === 'price' ? (a, b) => a.salePrice - b.salePrice : (a, b) => new Date(b.addedAt) - new Date(a.addedAt));
-  document.getElementById('grid').innerHTML = list.map(card).join('');
+  document.getElementById('grid').innerHTML = list.map(d => card(d)).join('');
   document.getElementById('empty').hidden = list.length > 0;
 }
 function renderCats() {
@@ -66,9 +69,6 @@ function renderCats() {
 }
 fetch('deals.json', {cache: 'no-store'}).then(r => r.json()).then(data => {
   all = data.deals || [];
-  document.getElementById('sampleBanner').hidden = !data.isSample;
-  if (data.updatedAt) document.getElementById('updated').textContent =
-    '업데이트: ' + new Date(data.updatedAt).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short'}) + ' (KST)';
   renderTop(); renderCats(); render();
 }).catch(() => { document.getElementById('empty').hidden = false; document.getElementById('empty').textContent = '상품 데이터를 불러오지 못했어요.'; });
 document.getElementById('q').addEventListener('input', render);
