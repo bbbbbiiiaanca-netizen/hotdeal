@@ -102,6 +102,12 @@ export function mergeHistory(prev, matched, seenAt) {
   return [...today, ...(prev ?? []).filter(d => !urls.has(d.url))].slice(0, HISTORY_MAX);
 }
 
+/**
+ * 품절대란 표시. 지금 deals.json에는 품절·재고 필드가 없어 가격·할인율로 추정하지 않는다.
+ * 수집기가 soldOut/lowStock을 true로 넣어 줄 때만 붙이므로, 현재 데이터로는 절대 표시되지 않는다.
+ */
+const stockRush = d => d.soldOut === true || d.lowStock === true;
+
 function card(d, item, seenNote) {
   const p = pct(d);
   const href = withSubId(d.url, item.subId);
@@ -112,18 +118,62 @@ function card(d, item, seenNote) {
   return `<article class="card">
     <div class="thumb">${img}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
     <div class="body">
-      <div class="tags"><span class="tag">${esc(item.category)}</span>${seenNote ? `<span class="tag">${esc(seenNote)}</span>` : ''}</div>
+      <div class="tags"><span class="tag">${esc(item.category)}</span>${seenNote ? `<span class="tag">${esc(seenNote)}</span>` : ''}${stockRush(d) ? '<span class="tag">품절대란</span>' : ''}</div>
       <h3>${esc(d.title)}</h3>
       <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b>${p ? ` <span class="muted">${p}% 할인</span>` : ''}</div>
       <a class="btn" href="${esc(href)}"${missing} target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기</a>
     </div></article>`;
 }
 
-/** 페이지 HTML. 오늘 딜 → 오늘 딜 목록, 없고 기록 있음 → 오늘은 딜 없음 + 최근 딜, 둘 다 없음 → 준비 중 */
-export function renderPage({ item, items, today, history, updatedAt }) {
+/** 기록 최저가: 이전 누적 최저가(prevMin)와 지금 기록(history) 중 가장 낮은 salePrice. 기록이 없으면 null */
+export function recordMin(history, prevMin) {
+  const prices = (history ?? []).map(d => d.salePrice).filter(n => n > 0);
+  if (prevMin > 0) prices.push(prevMin);
+  return prices.length ? Math.min(...prices) : null;
+}
+
+/**
+ * 오늘 딜 중 가장 싼 것이 기록 최저가 이하면 { price, date }(date = 그 딜의 seenAt, KST 날짜), 아니면 null.
+ * 오늘 딜은 이미 기록에 합쳐져 있으므로 "이하" 비교가 곧 "기록상 가장 싸다"가 된다.
+ */
+export function lowestNow({ today, history, minSalePrice, updatedAt }) {
+  if (!today?.length) return null;
+  const best = today.reduce((a, d) => (d.salePrice < a.salePrice ? d : a));
+  const min = recordMin(history, minSalePrice);
+  if (min === null || !(best.salePrice <= min)) return null;
+  const seenAt = (history ?? []).find(h => h.url === best.url)?.seenAt ?? best.seenAt ?? updatedAt;
+  return seenAt ? { price: best.salePrice, date: kstDate(seenAt) } : null;
+}
+
+/**
+ * 오늘 딜이 끝난 품목: 마지막 딜과 최근 딜 기록은 링크 없는 텍스트(날짜·가격)로만 보여 준다.
+ * 쿠팡 링크는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(구매 버튼 스타일 아님).
+ */
+function endedBody(item, history) {
   const kw = item.keyword;
-  const title = `${kw} 최저가·핫딜 | 핫딜 오이데`;
-  const desc = `${kw} 오늘 최저가 핫딜. 매일 아침 쿠팡 특가에서 ${kw} 할인 상품만 골라 가격과 할인율을 정리합니다.`;
+  const last = history[0];
+  const rows = history.map(d => `<li><span class="muted">${kstDate(d.seenAt)}</span> ${esc(d.title)} · ${won(d.salePrice)} <span class="muted">지난 딜</span></li>`).join('');
+  return `<h2 class="sec"><span class="tag ended">끝난 딜</span> 지난 ${esc(kw)} 딜</h2>
+    <p class="muted">오늘 갱신에는 ${esc(kw)} 딜이 없었어요. 아래 가격은 확인 당시 기록일 뿐 지금 가격이 아닙니다.</p>
+    <div class="ended-deal">
+      <p><span class="tag ended">끝난 딜</span> ${esc(last.title)}</p>
+      <p>기록 가격 <b>${won(last.salePrice)}</b> <span class="muted">(${kstDate(last.seenAt)} 확인, 지난 기록)</span></p>
+      <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a> <a class="chip" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a></p>
+      <p class="muted">${DISCLOSURE}</p>
+    </div>
+    <h2 class="sec">최근 딜 기록</h2>
+    <ul class="recent-deals">${rows}</ul>`;
+}
+
+/**
+ * 페이지 HTML. 오늘 딜 → 오늘 딜 목록, 없고 기록 있음 → 끝난 딜 + 최근 딜 기록, 둘 다 없음 → 준비 중(noindex).
+ * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 최저가 이하일 때만 ' 최저가 (YYYY-MM-DD 기준, 우리 기록)'을 붙인다.
+ */
+export function renderPage({ item, items, today, history, updatedAt, minSalePrice }) {
+  const kw = item.keyword;
+  const low = lowestNow({ today, history, minSalePrice, updatedAt });
+  const title = `${kw} 비교${low ? ` 최저가 (${low.date} 기준, 우리 기록)` : ''}`;
+  const desc = title;
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
   const updated = t ? `업데이트: ${t.y}년 ${t.m}월 ${t.d}일 ${t.hh}:${t.mm} (KST)` : '';
@@ -134,10 +184,7 @@ export function renderPage({ item, items, today, history, updatedAt }) {
     body = `<h2 class="sec">오늘의 ${esc(kw)} 핫딜 ${today.length}개</h2>
     <div class="grid">${today.map(d => card(d, item)).join('')}</div>`;
   } else if (history.length) {
-    body = `<h2 class="sec">오늘은 딜 없음</h2>
-    <p class="muted">오늘 갱신에는 ${esc(kw)} 상품이 없었어요. 아래는 최근에 확인한 딜입니다. 가격은 확인 당시 기준이라 지금은 달라졌을 수 있으니 쿠팡에서 꼭 확인하세요.</p>
-    <h2 class="sec">최근 딜</h2>
-    <div class="grid">${history.map(d => { const s = kst(d.seenAt); return card(d, item, `${s.m}/${s.d} 확인`); }).join('')}</div>`;
+    body = endedBody(item, history);
   } else {
     body = `<h2 class="sec">준비 중</h2>
     <p class="muted">준비 중: 아직 이 품목의 확인된 쿠팡 파트너스 상품이 없어요. 매일 아침 갱신 때 들어오면 여기에 표시됩니다.</p>`;
@@ -176,7 +223,7 @@ export function renderPage({ item, items, today, history, updatedAt }) {
 </header>
 <main class="wrap">
   <section class="hero">
-    <h1>${esc(kw)} 오늘 핫딜</h1>
+    <h1>${esc(title)}</h1>
     ${updated ? `<p class="muted">${updated}</p>` : ''}
   </section>
   <section>
@@ -293,8 +340,12 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
   for (const item of items) {
     const rec = state.items[item.slug] ?? { deals: [] };
     const matched = matchDeals(data.deals, item);
+    // 기록 최저가는 합치기 전 기록 + 이전 누적값 + 오늘 가격으로 누적한다.
+    // mergeHistory가 같은 url을 오늘 가격으로 덮어쓰거나 HISTORY_MAX개로 자르기 전에 계산해야 예전 더 싼 가격이 사라지지 않는다.
+    const min = recordMin([...(rec.deals ?? []), ...matched], rec.minSalePrice);
+    if (min !== null) rec.minSalePrice = min;
     rec.deals = mergeHistory(rec.deals, matched, seenAt);
-    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt });
+    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, minSalePrice: rec.minSalePrice });
     const indexable = isIndexable({ today: matched, history: rec.deals });
     if (!indexable) noindex.add(pageUrl(item.slug));
     const file = path.join(root, 'deal', item.slug, 'index.html');
