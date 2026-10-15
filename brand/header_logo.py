@@ -2,13 +2,41 @@
 
 gyaru-mix.png(승인된 정사각 로고)의 톤을 가로 한 줄 배지로 옮긴 버전.
 어느 위치에서 실행해도 레포 루트 기준으로 저장한다.
+
+요구 사항: Pillow >= 10 (WebP 지원 빌드), Do Hyeon 폰트(Google Fonts, OFL; 레포에 포함하지 않음).
+  폰트 위치는 환경변수 HOTDEAL_LOGO_FONT 로 지정하거나 FONT_CANDIDATES 경로 중 하나에 둔다.
+사용법: python3 brand/header_logo.py
+출력: assets/logo.png, assets/logo.webp (무손실). 폭은 항상 짝수라 HTML width = 폭/2 로 딱 맞는다.
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
-import math, os, random
+import math, os, random, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets")
-DH = "/usr/share/fonts/truetype/sand-box/google/Do Hyeon/DoHyeon-Regular.ttf"
+FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/sand-box/google/Do Hyeon/DoHyeon-Regular.ttf",
+    os.path.join(ROOT, "brand", "fonts", "DoHyeon-Regular.ttf"),
+    "/usr/share/fonts/truetype/dohyeon/DoHyeon-Regular.ttf",
+    "/usr/share/fonts/truetype/google-fonts/DoHyeon-Regular.ttf",
+    os.path.expanduser("~/.fonts/DoHyeon-Regular.ttf"),
+    os.path.expanduser("~/.local/share/fonts/DoHyeon-Regular.ttf"),
+]
+
+
+def find_font():
+    env = os.environ.get("HOTDEAL_LOGO_FONT")
+    if env:
+        if os.path.isfile(env): return env
+        sys.exit(f"HOTDEAL_LOGO_FONT 경로에 폰트 파일이 없습니다: {env}")
+    for p in FONT_CANDIDATES:
+        if os.path.isfile(p): return p
+    sys.exit("Do Hyeon 폰트(Google Fonts, OFL 라이선스)가 필요합니다.\n"
+             "https://fonts.google.com/specimen/Do+Hyeon 에서 DoHyeon-Regular.ttf 를 받은 뒤\n"
+             "  HOTDEAL_LOGO_FONT=/경로/DoHyeon-Regular.ttf python3 brand/header_logo.py\n"
+             "처럼 지정하거나 아래 경로 중 하나에 두세요:\n  " + "\n  ".join(FONT_CANDIDATES))
+
+
+DH = find_font()
 
 K = 8                 # supersample 배율
 FINAL_H = 88          # 최종 높이(px)
@@ -125,6 +153,8 @@ bg.putalpha(ImageChops.multiply(bg.getchannel("A"), mask))
 bb = bg.getbbox(); m = K
 bg = bg.crop((bb[0] - m, bb[1] - m, bb[2] + m, bb[3] + m))
 out = bg.resize((round(bg.width * FINAL_H / bg.height), FINAL_H), Image.LANCZOS)
+if out.width % 2:  # 폭을 짝수로: 오른쪽에 투명 1px 열 추가 (HTML width = 폭/2 정수)
+    pad = Image.new("RGBA", (out.width + 1, FINAL_H), (0, 0, 0, 0)); pad.paste(out, (0, 0)); out = pad
 
 os.makedirs(OUT, exist_ok=True)
 out.save(os.path.join(OUT, "logo.png"), optimize=True)
