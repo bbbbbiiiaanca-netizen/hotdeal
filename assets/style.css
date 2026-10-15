@@ -12,7 +12,8 @@ a{color:inherit}
 .tg-btn{display:inline-flex;align-items:center;gap:4px;background:#1A6FA0;color:#fff;font-size:13px;font-weight:700;text-decoration:none;border-radius:999px;padding:7px 14px;white-space:nowrap}
 .tg-btn:hover{filter:brightness(.95)}
 .foot .tg-btn{font-size:14px;padding:9px 18px}
-.disclosure{color:var(--muted);font-size:12px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;margin:0 0 8px}
+.foot .disclosure{color:#333;font-size:13px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;margin:12px 0 0}
+.foot .disclosure strong{display:inline-block;background:#c2410c;color:#fff;border-radius:3px;padding:0 4px;margin-right:3px;letter-spacing:0;line-height:1.5}
 .my-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:44px;height:44px;padding:0;border:0;background:none;border-radius:50%;cursor:pointer;color:var(--ink);font:inherit}
 .my-btn span{display:grid;place-items:center;width:36px;height:36px;border:1.5px solid var(--ink);border-radius:50%;font-size:12px;font-weight:800;letter-spacing:-.02em;background:#fff}
 .my-btn:hover span{background:#f1f3f5}
