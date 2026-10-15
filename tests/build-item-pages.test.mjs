@@ -100,12 +100,12 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   assert.match(html, /<link rel="canonical" href="https:\/\/hotdeal\.sooinlab\.com\/deal\/%ED%8C%AC%ED%9E%88%ED%84%B0\/">/);
   assert.match(html, /href="\/assets\/style\.css"/);
   assert.match(html, /2026년 10월 15일 07:33 \(KST\)/);
-  assert.match(html, /https:\/\/t\.me\/hotdeal_oide[^>]*>✈️ @hotdeal_oide 구독하고 매일 받기/);
+  assertNoBodyTelegram(html);
   assertDisclosureOnceInFooter(html);
   rmSync(root, { recursive: true });
 });
 
-test('상태 (b): 오늘 딜 없고 기록 있음 → 끝난 딜 + 최근 딜 기록', () => {
+test('상태 (b): 오늘 딜 없고 기록 있음 → 끝난 딜(최근 딜 기록 칸 없음)', () => {
   const root = site([deal('fh1', '신일 팬히터')]);
   buildAll({ root, now: D1 });
   setDeals(root, [deal('x', '다른 상품')], '2026-10-16T07:30:00+09:00');
@@ -113,7 +113,8 @@ test('상태 (b): 오늘 딜 없고 기록 있음 → 끝난 딜 + 최근 딜 �
   assert.ok(changed.includes(pageUrl('팬히터')));
   const html = page(root, '팬히터');
   assert.match(html, /끝난 딜/);
-  assert.match(html, /최근 딜 기록/);
+  assert.doesNotMatch(html, /최근 딜 기록|recent-deals/);
+  assertNoBodyTelegram(html);
   assert.match(html, /2026-10-15 확인/);
   assert.match(html, /지금 가격이 아닙니다/);
   assert.match(html, /신일 팬히터/);
@@ -357,6 +358,11 @@ const descOf = html => html.match(/<meta name="description" content="([^"]*)">/)
 const H = (id, salePrice, seenAt) => ({ title: `팬히터 ${id}`, url: `https://link.coupang.com/a/${id}`, salePrice, originalPrice: 30000, image: '', seenAt });
 const R = { item: ITEMS[0], items: ITEMS, updatedAt: '2026-10-15T07:33:00+09:00' };
 const TG = 'https://t.me/hotdeal_oide';
+function assertNoBodyTelegram(html) {
+  const body = html.slice(html.indexOf('</header>'));
+  assert.doesNotMatch(body, /t\.me|tg-btn|hotdeal_oide|텔레그램|Telegram/);
+  assert.equal(html.split('https://t.me/hotdeal_oide').length - 1, 1);
+}
 
 test('제목 기본값: title·h1·description 모두 "{품목} 비교" (최저가 아니면 덧붙이지 않음)', () => {
   // 오늘 딜(25,000원)이 기록 최저가(19,300원)보다 비쌈
@@ -439,7 +445,7 @@ test('품절대란: 재고 필드가 없으면 절대 표시 안 함, soldOut/lo
   rmSync(root, { recursive: true });
 });
 
-test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 가격 버튼, 고지문, 최근 딜 목록', () => {
+test('끝난 딜: 마지막 딜은 기록으로만, 쿠팡 지금 가격 버튼, 고지문, 본문 텔레그램·최근 딜 목록 없음', () => {
   const history = [
     { ...H('last', 19300, '2026-10-14T07:33:00+09:00'), title: '신일 팬히터 마지막' },
     { ...H('old', 21000, '2026-10-10T07:33:00+09:00'), title: '신일 팬히터 예전' },
@@ -448,8 +454,9 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   const ended = html.slice(html.indexOf('<div class="ended-deal">'), html.indexOf('</div>', html.indexOf('<div class="ended-deal">')));
   assert.match(ended, /<p>신일 팬히터 마지막<\/p>/);
   assert.match(ended, /기록 가격 <b>19,300원<\/b> <span class="muted">\(2026-10-14 확인, 지난 기록\)<\/span>/);
-  // 텔레그램 버튼이 가격 기록 옆(같은 블록)에
-  assert.ok(ended.includes(`<a class="tg-btn" href="${TG}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a>`));
+  // 본문 텔레그램 버튼 없음(헤더 종이비행기만)
+  assert.doesNotMatch(ended, /tg-btn|t\.me/);
+  assertNoBodyTelegram(html);
   // 쿠팡 링크는 "쿠팡에서 지금 가격 보기" 전용 버튼(.btn-now-price, 카드 구매 버튼 .btn·chip 아님, sponsored)
   const NOW_BTN = '<a class="btn-now-price" href="https://link.coupang.com/a/last" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>';
   assert.ok(ended.includes(NOW_BTN));
@@ -462,11 +469,8 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   assert.doesNotMatch(html, /쿠팡에서 보기</);
   assert.doesNotMatch(html, /class="card"/);
   assert.doesNotMatch(html, /<s>/);
-  // 최근 딜 기록 목록: 링크 없는 텍스트(날짜·가격)
-  const list = html.slice(html.indexOf('<ul class="recent-deals">'), html.indexOf('</ul>', html.indexOf('<ul class="recent-deals">')));
-  assert.match(list, /2026-10-14<\/span> 신일 팬히터 마지막 · 19,300원 <span class="muted">지난 딜<\/span><\/li>/);
-  assert.match(list, /2026-10-10<\/span> 신일 팬히터 예전 · 21,000원 <span class="muted">지난 딜<\/span><\/li>/);
-  assert.doesNotMatch(list, /<a /);
+  // 최근 딜 기록 칸 없음(위 카드와 중복)
+  assert.doesNotMatch(html, /최근 딜 기록|recent-deals|신일 팬히터 예전/);
   // 딜 URL 앵커는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(예전 딜 URL로 가는 링크 없음)
   const dealAnchors = [...html.matchAll(/<a [^>]*href="https:\/\/link\.coupang\.com\/[^"]*"[^>]*>[^<]*<\/a>/g)].map(m => m[0]);
   assert.deepEqual(dealAnchors, [NOW_BTN]);
@@ -497,7 +501,9 @@ test('헤더·푸터: 메인 index.html과 같은 마크업(경로만 절대경�
   const html = renderPage({ ...R, today: [], history: [] });
   const header = block(html, '<header class="top">', '</header>');
   assert.equal(header, abs(block(index, '<header class="top">', '</header>')));
-  assert.equal(block(html, '<footer class="foot">', '</footer>'), abs(block(index, '<footer class="foot">', '</footer>')));
+  // 푸터: 메인과 같되 텔레그램 버튼 줄만 뺌
+  const noTg = s => s.replace(/  <p><a class="tg-btn"[^\n]*<\/a><\/p>\n/, '');
+  assert.equal(block(html, '<footer class="foot">', '</footer>'), noTg(abs(block(index, '<footer class="foot">', '</footer>'))));
   // 헤더: 로고 그림(→ /), MY 버튼, 텔레그램 아이콘
   assert.ok(header.includes('<a class="logo" href="/"><picture><source srcset="/assets/logo.webp" type="image/webp"><img src="/assets/logo.png" alt="핫딜 오이데"'));
   assert.match(header, /<button type="button" class="my-btn" id="myBtn"/);
@@ -514,7 +520,7 @@ test('끝난 딜 배너: h1 바로 아래 큰 배너 하나, 작은 회색 배�
   assert.ok(ended.includes(`<h1>팬히터 비교</h1>\n    ${BANNER}\n`));
   assert.equal(ended.split(BANNER).length - 1, 1);
   assert.doesNotMatch(ended, /class="tag ended"/);
-  // 나머지는 그대로: 기록 가격·텔레그램·지금 가격 버튼
+  // 나머지는 그대로: 기록 가격·지금 가격 버튼
   assert.match(ended, /기록 가격 <b>19,300원<\/b>/);
   assert.match(ended, /class="btn-now-price"/);
   const current = renderPage({ ...R, today: [deal('n', '팬히터 n')], history: [H('n', 25000, '2026-10-15T07:33:00+09:00')] });

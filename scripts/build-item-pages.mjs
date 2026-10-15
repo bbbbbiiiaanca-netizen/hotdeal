@@ -152,17 +152,13 @@ export function lowestNow({ today, history, minSalePrice, updatedAt }) {
 function endedBody(item, history) {
   const kw = item.keyword;
   const last = history[0];
-  const rows = history.map(d => `<li><span class="muted">${kstDate(d.seenAt)}</span> ${esc(d.title)} · ${won(d.salePrice)} <span class="muted">지난 딜</span></li>`).join('');
   return `<h2 class="sec">지난 ${esc(kw)} 딜</h2>
     <p class="muted">오늘 갱신에는 ${esc(kw)} 딜이 없었어요. 아래 가격은 확인 당시 기록일 뿐 지금 가격이 아닙니다.</p>
     <div class="ended-deal">
       <p>${esc(last.title)}</p>
       <p>기록 가격 <b>${won(last.salePrice)}</b> <span class="muted">(${kstDate(last.seenAt)} 확인, 지난 기록)</span></p>
-      <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a></p>
       <a class="btn-now-price" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
-    </div>
-    <h2 class="sec">최근 딜 기록</h2>
-    <ul class="recent-deals">${rows}</ul>`;
+    </div>`;
 }
 
 /**
@@ -237,7 +233,6 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
     <p>매일 아침 쿠팡 골드박스·특가에서 ${esc(kw)} 상품 중 쿠팡 파트너스 링크가 확인된 것만 담습니다. 가격과 할인율은 수집 시점 기준이라 지금은 다를 수 있으니, 구매 전 쿠팡 상품 페이지에서 확인하세요.</p>
     <h2>고르는 기준</h2>
     <p>${esc(item.guide)}</p>
-    <p class="center"><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ @hotdeal_oide 구독하고 매일 받기</a></p>
   </section>
   <section>
     <h2 class="sec">품목별 핫딜</h2>
@@ -245,7 +240,6 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   </section>
 </main>
 <footer class="foot">
-  <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ Telegram으로 매일 받기</a></p>
   <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
   <p>가격과 재고는 수시로 바뀝니다. 구매 전 쿠팡 상품 페이지에서 꼭 확인하세요.</p>
   <p><a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
