@@ -38,12 +38,6 @@ function byRecommend(list) {
   const prefs = my.getPrefs(), clicks = my.getClicks(), sc = new Map(list.map(d => [d, my.score(d, prefs, clicks)]));
   return list.sort((a, b) => sc.get(b) - sc.get(a) || pct(b) - pct(a));
 }
-function renderTop() {
-  const base = visible();
-  let top = base.filter(d => d.top);
-  if (!top.length) top = all.filter(d => d.top);
-  document.getElementById('top').innerHTML = byRecommend(top).slice(0, 6).map(card).join('');
-}
 function render() {
   const q = document.getElementById('q').value.trim().toLowerCase();
   const sort = document.getElementById('sort').value;
@@ -66,14 +60,11 @@ function renderCats() {
 }
 fetch('deals.json', {cache: 'no-store'}).then(r => r.json()).then(data => {
   all = data.deals || [];
-  document.getElementById('sampleBanner').hidden = !data.isSample;
-  if (data.updatedAt) document.getElementById('updated').textContent =
-    '업데이트: ' + new Date(data.updatedAt).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', dateStyle: 'medium', timeStyle: 'short'}) + ' (KST)';
-  renderTop(); renderCats(); render();
+  renderCats(); render();
 }).catch(() => { document.getElementById('empty').hidden = false; document.getElementById('empty').textContent = '상품 데이터를 불러오지 못했어요.'; });
 document.getElementById('q').addEventListener('input', render);
 document.getElementById('sort').addEventListener('change', render);
-document.addEventListener('hd:my-change', () => { if (all.length) { renderTop(); renderCats(); render(); } });
+document.addEventListener('hd:my-change', () => { if (all.length) { renderCats(); render(); } });
 // 예시 링크(#placeholder)는 이동하지 않고 안내만 표시
 document.addEventListener('click', e => {
   const a = e.target.closest('a.btn');
