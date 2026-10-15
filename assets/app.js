@@ -11,14 +11,13 @@ function thumb(d) {
 function card(d, rank) {
   const p = pct(d);
   const rk = rank >= 1 && rank <= 3 ? `<span class="rank rank-${rank}" aria-label="${rank}위">${rank}</span>` : '';
-  return `<article class="card">
-    <div class="thumb">${thumb(d)}${rk}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
-    <div class="body">
-      <div class="tags"><span class="tag">${esc(d.category)}</span>${d.rocket ? "<span class=\"tag rocket\">로켓</span>" : ""}</div>
-      <h3>${esc(d.title)}</h3>
-      <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b></div>
-      <a class="btn" data-id="${esc(d.id)}" href="${esc(d.url)}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기</a>
-    </div></article>`;
+  // 카드 전체가 쿠팡 링크(a.btn) — 클릭 기록은 아래 a.btn 핸들러가 그대로 처리
+  return `<article class="card"><a class="btn" data-id="${esc(d.id)}" href="${esc(d.url)}" target="_blank" rel="sponsored nofollow noopener">
+    <div class="thumb">${thumb(d)}${rk}</div>
+    <h3>${esc(d.title)}</h3>
+    <div class="price">${p ? `<span class="pct down">${p}%</span>` : ''}<b>${won(d.salePrice)}</b></div>
+    ${p ? `<s class="was">${won(d.originalPrice)}</s>` : ''}
+  </a></article>`;
 }
 // MY 설정(assets/my.js): 꺼 둔 카테고리는 숨기되, 남는 상품이 없으면 전체를 보여줌
 const my = window.HDMY;
@@ -39,11 +38,16 @@ function byRecommend(list) {
   const prefs = my.getPrefs(), clicks = my.getClicks(), sc = new Map(list.map(d => [d, my.score(d, prefs, clicks)]));
   return list.sort((a, b) => sc.get(b) - sc.get(a) || pct(b) - pct(a));
 }
+// TOP 순위: 할인율 차이가 1%p 이내면 가격이 높은 상품을 앞에
+const topCmp = (a, b) => Math.abs(pct(b) - pct(a)) <= 1 ? b.salePrice - a.salePrice : pct(b) - pct(a);
+let topIds = new Set();
 function renderTop() {
   const base = visible();
   let top = base.filter(d => d.top);
   if (!top.length) top = all.filter(d => d.top);
-  const list = byRecommend(top).slice(0, 6);
+  const sc = my ? new Map(top.map(d => [d, my.score(d, my.getPrefs(), my.getClicks())])) : null;
+  const list = top.sort((a, b) => (sc ? sc.get(b) - sc.get(a) : 0) || topCmp(a, b)).slice(0, 6);
+  topIds = new Set(list.map(d => String(d.id)));
   document.getElementById('topBox').hidden = !list.length;
   document.getElementById('top').innerHTML = list.map((d, i) => card(d, i + 1)).join('');
 }
@@ -53,7 +57,8 @@ function render() {
   const base = visible();
   const note = document.getElementById('myNote');
   note.textContent = notice; note.hidden = !notice;
-  let list = base.filter(d => (cat === '전체' || d.category === cat) && (!q || d.title.toLowerCase().includes(q)));
+  // TOP 상자에 오른 상품은 전체 딜 목록에서 뺌
+  let list = base.filter(d => !topIds.has(String(d.id)) && (cat === '전체' || d.category === cat) && (!q || d.title.toLowerCase().includes(q)));
   if (sort === 'recommend') byRecommend(list);
   else if (sort === 'discount') list.sort((a, b) => pct(b) - pct(a));
   else list.sort(sort === 'price' ? (a, b) => a.salePrice - b.salePrice : (a, b) => new Date(b.addedAt) - new Date(a.addedAt));
@@ -79,7 +84,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('a.btn');
   if (!a) return;
   if (a.getAttribute('href').startsWith('#')) { e.preventDefault(); alert('예시 데이터입니다. 실제 쿠팡 파트너스 링크로 바꿔 주세요.'); return; }
-  // "쿠팡에서 보기" 클릭: 카테고리·키워드 횟수만 이 브라우저에 기록 (전송 없음)
+  // 상품 카드(쿠팡 링크) 클릭: 카테고리·키워드 횟수만 이 브라우저에 기록 (전송 없음)
   const d = all.find(x => String(x.id) === a.dataset.id);
   if (d && my) my.recordClick(d);
 });
