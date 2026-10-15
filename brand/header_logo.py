@@ -4,10 +4,11 @@
 "오이데~" 주황 #FF7A00, 얇은 흰 외곽선 + 얇은 어두운 그림자. 배경은 투명.
 어느 위치에서 실행해도 레포 루트 기준으로 저장한다.
 
-요구 사항: Pillow >= 10 (WebP 지원 빌드), Do Hyeon 폰트(Google Fonts, OFL; 레포에 포함하지 않음).
+요구 사항: Pillow >= 10 (WebP 지원 빌드), Jua 폰트(Google Fonts, OFL; 레포에 포함하지 않음).
+  (Do Hyeon 은 '데'가 '테'처럼 보여서 Jua 로 교체)
   폰트 위치는 환경변수 HOTDEAL_LOGO_FONT 로 지정하거나 FONT_CANDIDATES 경로 중 하나에 둔다.
 사용법: python3 brand/header_logo.py
-출력: assets/logo.png, assets/logo.webp (무손실). 폭은 항상 짝수라 HTML width = 폭/2 로 딱 맞는다.
+출력: assets/logo.png, assets/logo.webp (무손실). 356x88 고정이라 HTML width/height(178x44)와 딱 맞는다.
 """
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os, sys
@@ -15,12 +16,12 @@ import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets")
 FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/sand-box/google/Do Hyeon/DoHyeon-Regular.ttf",
-    os.path.join(ROOT, "brand", "fonts", "DoHyeon-Regular.ttf"),
-    "/usr/share/fonts/truetype/dohyeon/DoHyeon-Regular.ttf",
-    "/usr/share/fonts/truetype/google-fonts/DoHyeon-Regular.ttf",
-    os.path.expanduser("~/.fonts/DoHyeon-Regular.ttf"),
-    os.path.expanduser("~/.local/share/fonts/DoHyeon-Regular.ttf"),
+    "/usr/share/fonts/truetype/sand-box/google/Jua/Jua-Regular.ttf",
+    os.path.join(ROOT, "brand", "fonts", "Jua-Regular.ttf"),
+    "/usr/share/fonts/truetype/jua/Jua-Regular.ttf",
+    "/usr/share/fonts/truetype/google-fonts/Jua-Regular.ttf",
+    os.path.expanduser("~/.fonts/Jua-Regular.ttf"),
+    os.path.expanduser("~/.local/share/fonts/Jua-Regular.ttf"),
 ]
 
 
@@ -31,16 +32,16 @@ def find_font():
         sys.exit(f"HOTDEAL_LOGO_FONT 경로에 폰트 파일이 없습니다: {env}")
     for p in FONT_CANDIDATES:
         if os.path.isfile(p): return p
-    sys.exit("Do Hyeon 폰트(Google Fonts, OFL 라이선스)가 필요합니다.\n"
-             "https://fonts.google.com/specimen/Do+Hyeon 에서 DoHyeon-Regular.ttf 를 받은 뒤\n"
-             "  HOTDEAL_LOGO_FONT=/경로/DoHyeon-Regular.ttf python3 brand/header_logo.py\n"
+    sys.exit("Jua 폰트(Google Fonts, OFL 라이선스)가 필요합니다.\n"
+             "https://fonts.google.com/specimen/Jua 에서 Jua-Regular.ttf 를 받은 뒤\n"
+             "  HOTDEAL_LOGO_FONT=/경로/Jua-Regular.ttf python3 brand/header_logo.py\n"
              "처럼 지정하거나 아래 경로 중 하나에 두세요:\n  " + "\n  ".join(FONT_CANDIDATES))
 
 
 DH = find_font()
 
 K = 8                 # supersample 배율
-FINAL_H = 88          # 최종 높이(px)
+FINAL_W, FINAL_H = 356, 88  # 최종 크기(px) = HTML 178x44 @2x
 H = FINAL_H * K       # 작업 캔버스 높이
 
 RED, ORANGE = "#E8121E", "#FF7A00"
@@ -74,12 +75,10 @@ text = Image.new("RGBA", (W, CH), (0, 0, 0, 0))
 text.alpha_composite(w1, (0, (CH - w1.height) // 2 - bounce))
 text.alpha_composite(w2, (w1.width + gap, (CH - w2.height) // 2 + bounce))
 
-# trim → 높이 88 고정 축소
+# trim → 356x88 고정 축소 (Jua 는 Do Hyeon 보다 살짝 넓어 가로를 약 5% 좁혀 기존 크기에 맞춤)
 bb = text.getbbox(); m = K
 text = text.crop((bb[0] - m, bb[1] - m, bb[2] + m, bb[3] + m))
-out = text.resize((round(text.width * FINAL_H / text.height), FINAL_H), Image.LANCZOS)
-if out.width % 2:  # 폭을 짝수로: 오른쪽에 투명 1px 열 추가 (HTML width = 폭/2 정수)
-    pad = Image.new("RGBA", (out.width + 1, FINAL_H), (0, 0, 0, 0)); pad.paste(out, (0, 0)); out = pad
+out = text.resize((FINAL_W, FINAL_H), Image.LANCZOS)
 
 os.makedirs(OUT, exist_ok=True)
 out.save(os.path.join(OUT, "logo.png"), optimize=True)
