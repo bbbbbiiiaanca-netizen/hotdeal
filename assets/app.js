@@ -39,11 +39,16 @@ function byRecommend(list) {
   const prefs = my.getPrefs(), clicks = my.getClicks(), sc = new Map(list.map(d => [d, my.score(d, prefs, clicks)]));
   return list.sort((a, b) => sc.get(b) - sc.get(a) || pct(b) - pct(a));
 }
+// TOP 순위: 할인율 차이가 1%p 이내면 가격이 높은 상품을 앞에
+const topCmp = (a, b) => Math.abs(pct(b) - pct(a)) <= 1 ? b.salePrice - a.salePrice : pct(b) - pct(a);
+let topIds = new Set();
 function renderTop() {
   const base = visible();
   let top = base.filter(d => d.top);
   if (!top.length) top = all.filter(d => d.top);
-  const list = byRecommend(top).slice(0, 6);
+  const sc = my ? new Map(top.map(d => [d, my.score(d, my.getPrefs(), my.getClicks())])) : null;
+  const list = top.sort((a, b) => (sc ? sc.get(b) - sc.get(a) : 0) || topCmp(a, b)).slice(0, 6);
+  topIds = new Set(list.map(d => String(d.id)));
   document.getElementById('topBox').hidden = !list.length;
   document.getElementById('top').innerHTML = list.map((d, i) => card(d, i + 1)).join('');
 }
@@ -53,7 +58,8 @@ function render() {
   const base = visible();
   const note = document.getElementById('myNote');
   note.textContent = notice; note.hidden = !notice;
-  let list = base.filter(d => (cat === '전체' || d.category === cat) && (!q || d.title.toLowerCase().includes(q)));
+  // TOP 상자에 오른 상품은 전체 딜 목록에서 뺌
+  let list = base.filter(d => !topIds.has(String(d.id)) && (cat === '전체' || d.category === cat) && (!q || d.title.toLowerCase().includes(q)));
   if (sort === 'recommend') byRecommend(list);
   else if (sort === 'discount') list.sort((a, b) => pct(b) - pct(a));
   else list.sort(sort === 'price' ? (a, b) => a.salePrice - b.salePrice : (a, b) => new Date(b.addedAt) - new Date(a.addedAt));
