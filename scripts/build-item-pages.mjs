@@ -29,6 +29,11 @@ const pct = d => d.originalPrice > d.salePrice ? Math.round((1 - d.salePrice / d
 export const pagePath = slug => `/deal/${encodeURIComponent(slug)}/`;
 export const pageUrl = slug => ORIGIN + pagePath(slug);
 
+/** 오늘 딜도 기록도 없는(준비 중) 페이지는 검색에 내보내지 않는다: noindex, 사이트맵·IndexNow 제외 */
+export const NOINDEX_META = '<meta name="robots" content="noindex">';
+export const isIndexable = ({ today, history }) => (today?.length ?? 0) > 0 || (history?.length ?? 0) > 0;
+const hasNoindex = html => html.includes(NOINDEX_META);
+
 // KST 기준 날짜·시각 부품
 function kst(date) {
   const t = new Date(new Date(date).getTime() + 9 * 3600 * 1000);
@@ -122,6 +127,7 @@ export function renderPage({ item, items, today, history, updatedAt }) {
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
   const updated = t ? `업데이트: ${t.y}년 ${t.m}월 ${t.d}일 ${t.hh}:${t.mm} (KST)` : '';
+  const robots = isIndexable({ today, history }) ? '' : `\n${NOINDEX_META}`;
 
   let body;
   if (today.length) {
@@ -146,7 +152,7 @@ export function renderPage({ item, items, today, history, updatedAt }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-<meta name="description" content="${esc(desc)}">
+<meta name="description" content="${esc(desc)}">${robots}
 <link rel="canonical" href="${esc(canonical)}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="핫딜 오이데">
@@ -259,8 +265,15 @@ function slugsOnDisk(root) {
     .map(e => e.name).sort();
 }
 
+/** 디스크의 품목 페이지가 noindex인지(파일을 못 읽으면 noindex로 본다) */
+function noindexOnDisk(root, slug) {
+  try { return hasNoindex(fs.readFileSync(path.join(root, 'deal', slug, 'index.html'), 'utf8')); } catch { return true; }
+}
+
 /**
  * 전체 생성. 바뀐 페이지 URL 목록을 돌려주고, 그 URL을 IndexNow 대기 목록에 더한다. 페이지 파일은 지우지 않는다.
+ * noindex(준비 중) 페이지는 바뀌어도 목록에 넣지 않고, 사이트맵과 대기 목록에서도 뺀다.
+ * noindex였던 페이지에 딜이 생기면 내용이 바뀌므로 바뀐 페이지로 잡혀 제출된다.
  * lastmod: 기록(state) → 기존 사이트맵 항목 → 오늘 순으로 정한다(파일 mtime은 체크아웃 시각이라 쓰지 않음).
  */
 export function buildAll({ root = ROOT, now = new Date() } = {}) {
@@ -275,16 +288,19 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
   const seenAt = data.updatedAt ?? now.toISOString();
   const today = kstDate(now);
   const changed = [];
+  const noindex = new Set();
 
   for (const item of items) {
     const rec = state.items[item.slug] ?? { deals: [] };
     const matched = matchDeals(data.deals, item);
     rec.deals = mergeHistory(rec.deals, matched, seenAt);
     const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt });
+    const indexable = isIndexable({ today: matched, history: rec.deals });
+    if (!indexable) noindex.add(pageUrl(item.slug));
     const file = path.join(root, 'deal', item.slug, 'index.html');
     if (writeIfChanged(file, html)) {
       rec.lastmod = today;
-      changed.push(pageUrl(item.slug));
+      if (indexable) changed.push(pageUrl(item.slug));
     } else if (!rec.lastmod) {
       rec.lastmod = oldLastmod.get(pageUrl(item.slug)) || today;
     }
@@ -292,15 +308,20 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
   }
 
   // 설정에서 빠진 품목도 페이지가 디스크에 남아 있으면 사이트맵에 유지
-  const entries = items.map(i => ({ loc: pageUrl(i.slug), lastmod: state.items[i.slug].lastmod }));
+  // (noindex 페이지는 다시 넣지 않는다)
+  const entries = items.filter(i => !noindex.has(pageUrl(i.slug)))
+    .map(i => ({ loc: pageUrl(i.slug), lastmod: state.items[i.slug].lastmod }));
   for (const slug of slugsOnDisk(root)) {
     if (items.some(i => i.slug === slug)) continue;
     const loc = pageUrl(slug);
+    if (noindexOnDisk(root, slug)) { noindex.add(loc); continue; }
     entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || '' });
   }
   writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries));
   writeIfChanged(stateFile, JSON.stringify(state, null, 2) + '\n');
-  if (changed.length) writePending(root, [...new Set([...readPending(root), ...changed])]);
+  const pending = readPending(root);
+  const nextPending = [...new Set([...pending, ...changed])].filter(u => !noindex.has(u));
+  if (nextPending.length !== pending.length || nextPending.some((u, i) => u !== pending[i])) writePending(root, nextPending);
   return { changed };
 }
 

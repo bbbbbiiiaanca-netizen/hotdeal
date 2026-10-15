@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { withSubId, matchDeals, titleMatches, mergeHistory, buildAll, flushIndexNow, readPending, pageUrl, DISCLOSURE, HISTORY_MAX } from '../scripts/build-item-pages.mjs';
+import { withSubId, matchDeals, titleMatches, mergeHistory, buildAll, flushIndexNow, readPending, pageUrl, renderPage, isIndexable, NOINDEX_META, DISCLOSURE, HISTORY_MAX } from '../scripts/build-item-pages.mjs';
 import { sameOriginUrls } from '../scripts/indexnow-submit.mjs';
 
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
@@ -80,7 +80,7 @@ test('mergeHistory: 오늘 딜이 앞, url 중복 제거, 최대 10개', () => {
 test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-missing', () => {
   const root = site([deal('fh1', '신일 팬히터 SFH-1')]);
   const { changed } = buildAll({ root, now: D1 });
-  assert.deepEqual(changed, [pageUrl('팬히터'), pageUrl('스마트TV')]);
+  assert.deepEqual(changed, [pageUrl('팬히터')]);
   const html = page(root, '팬히터');
   assert.match(html, /<title>팬히터 최저가·핫딜 \| 핫딜 오이데<\/title>/);
   assert.match(html, /<h1>팬히터 오늘 핫딜<\/h1>/);
@@ -137,7 +137,7 @@ test('내용이 같으면 다시 쓰지 않고 lastmod도 유지', () => {
 });
 
 test('사이트맵: 기존 3개 유지 + 품목 페이지 추가', () => {
-  const root = site([]);
+  const root = site([deal('fh1', '신일 팬히터'), deal('tv1', '삼성 스마트TV')]);
   buildAll({ root, now: D1 });
   buildAll({ root, now: D1 });
   const sm = readFileSync(join(root, 'sitemap.xml'), 'utf8');
@@ -151,7 +151,7 @@ test('사이트맵: 기존 3개 유지 + 품목 페이지 추가', () => {
 });
 
 test('페이지를 지우지 않음: 설정에서 빠진 품목도 파일과 사이트맵 항목 유지', () => {
-  const root = site([]);
+  const root = site([deal('fh1', '신일 팬히터')]);
   buildAll({ root, now: D1 });
   writeFileSync(join(root, 'data', 'item-pages.json'), JSON.stringify({ items: [ITEMS[1]] }));
   const { changed } = buildAll({ root, now: D2 });
@@ -187,7 +187,7 @@ test('설정의 톤업선크림: 톤업 + (선|spf) 모두 있어야 매칭', ()
 });
 
 test('기록이 없으면 lastmod는 파일 mtime이 아니라 기존 사이트맵 값을 쓴다', () => {
-  const root = site([deal('fh1', '신일 팬히터')]);
+  const root = site([deal('fh1', '신일 팬히터'), deal('tv1', '삼성 스마트TV')]);
   buildAll({ root, now: D1 });
   // 새 체크아웃 흉내: 기록만 없고 페이지·사이트맵은 있음. 사이트맵 lastmod를 과거 날짜로 바꿔 둔다.
   rmSync(join(root, 'state'), { recursive: true });
@@ -200,7 +200,7 @@ test('기록이 없으면 lastmod는 파일 mtime이 아니라 기존 사이트�
 });
 
 test('기록에 없어도 디스크에 남은 /deal/ 페이지는 사이트맵에 유지(기존 lastmod)', () => {
-  const root = site([]);
+  const root = site([deal('fh1', '신일 팬히터')]);
   buildAll({ root, now: D1 });
   rmSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'data', 'item-pages.json'), JSON.stringify({ items: [ITEMS[1]] }));
@@ -214,7 +214,7 @@ test('기록에 없어도 디스크에 남은 /deal/ 페이지는 사이트맵�
 });
 
 test('IndexNow 대기: 바뀐 URL은 쌓이고, 실패·dry-run이면 남고, 성공하면 비워진다', () => {
-  const root = site([deal('fh1', '신일 팬히터')]);
+  const root = site([deal('fh1', '신일 팬히터'), deal('tv1', '삼성 스마트TV')]);
   buildAll({ root, now: D1 });
   const all = [pageUrl('팬히터'), pageUrl('스마트TV')];
   assert.deepEqual(readPending(root), all);
@@ -261,4 +261,84 @@ test('state 기록 파일은 깃에서 무시되지 않는다', () => {
   const ignored = f => { try { execFileSync('git', ['check-ignore', '-q', f], { cwd: repo }); return true; } catch { return false; } };
   assert.equal(ignored('state/item-history.json'), false);
   assert.equal(ignored('state/indexnow-pending.json'), false);
+});
+
+const TV = pageUrl('스마트TV');
+const FH = pageUrl('팬히터');
+const writePendingFile = (root, urls) => { mkdirSync(join(root, 'state'), { recursive: true }); writeFileSync(join(root, 'state', 'indexnow-pending.json'), JSON.stringify({ urls })); };
+
+test('noindex: 준비 중(오늘 딜·기록 모두 없음)일 때만 robots noindex', () => {
+  const args = { item: ITEMS[1], items: ITEMS, updatedAt: '2026-10-15T07:33:00+09:00' };
+  const h = { title: 't', url: 'https://link.coupang.com/a/h', salePrice: 1, originalPrice: 1, image: '', seenAt: '2026-10-14T07:00:00+09:00' };
+  const count = html => html.split(NOINDEX_META).length - 1;
+  assert.equal(count(renderPage({ ...args, today: [], history: [] })), 1);
+  assert.equal(count(renderPage({ ...args, today: [deal('a', '스마트TV')], history: [h] })), 0);
+  assert.equal(count(renderPage({ ...args, today: [], history: [h] })), 0);
+  assert.equal(isIndexable({ today: [], history: [] }), false);
+  assert.equal(isIndexable({ today: [], history: [h] }), true);
+});
+
+test('noindex 페이지는 사이트맵·changed·IndexNow 대기에서 빠진다', () => {
+  const root = site([deal('fh1', '신일 팬히터')]);
+  const { changed } = buildAll({ root, now: D1 });
+  assert.match(page(root, '스마트TV'), /<meta name="robots" content="noindex">/);
+  assert.doesNotMatch(page(root, '팬히터'), /name="robots"/);
+  assert.deepEqual(changed, [FH]);
+  assert.deepEqual(readPending(root), [FH]);
+  assert.ok(sitemapOf(root).includes(`<loc>${FH}</loc>`));
+  assert.ok(!sitemapOf(root).includes(TV));
+  rmSync(root, { recursive: true });
+});
+
+test('noindex → 딜 생김: noindex 사라지고 changed·대기·사이트맵에 들어간다', () => {
+  const root = site([deal('fh1', '신일 팬히터')]);
+  buildAll({ root, now: D1 });
+  flushIndexNow({ root, submit: () => 0 });
+  setDeals(root, [deal('fh1', '신일 팬히터'), deal('tv1', '삼성 스마트TV')], '2026-10-16T07:30:00+09:00');
+  const { changed } = buildAll({ root, now: D2 });
+  assert.ok(changed.includes(TV));
+  assert.ok(readPending(root).includes(TV));
+  assert.doesNotMatch(page(root, '스마트TV'), /name="robots"/);
+  assert.match(sitemapOf(root), new RegExp(`<loc>${TV}</loc><lastmod>2026-10-16</lastmod>`));
+  rmSync(root, { recursive: true });
+});
+
+test('기록만 있고 오늘 딜 없음 → 계속 색인(noindex 없음, 사이트맵 유지)', () => {
+  const root = site([deal('fh1', '신일 팬히터'), deal('tv1', '삼성 스마트TV')]);
+  buildAll({ root, now: D1 });
+  setDeals(root, [], '2026-10-16T07:30:00+09:00');
+  const { changed } = buildAll({ root, now: D2 });
+  assert.deepEqual(changed, [FH, TV]);
+  for (const slug of ['팬히터', '스마트TV']) assert.doesNotMatch(page(root, slug), /name="robots"/);
+  assert.ok(sitemapOf(root).includes(`<loc>${TV}</loc>`));
+  assert.ok(sitemapOf(root).includes(`<loc>${FH}</loc>`));
+  rmSync(root, { recursive: true });
+});
+
+test('예전 실행이 남긴 noindex URL은 대기 목록과 기존 사이트맵에서 정리된다', () => {
+  const root = site([deal('fh1', '신일 팬히터')]);
+  writePendingFile(root, [TV, 'https://hotdeal.sooinlab.com/other/']);
+  writeFileSync(join(root, 'sitemap.xml'), SITEMAP.replace('</urlset>', `  <url><loc>${TV}</loc><lastmod>2026-10-14</lastmod></url>\n</urlset>`));
+  buildAll({ root, now: D1 });
+  assert.deepEqual(readPending(root), ['https://hotdeal.sooinlab.com/other/', FH]);
+  assert.ok(!sitemapOf(root).includes(TV));
+  rmSync(root, { recursive: true });
+});
+
+test('디스크에 남은(설정에서 빠진) noindex 페이지는 사이트맵·대기 목록에 다시 들어가지 않는다', () => {
+  const root = site([deal('fh1', '신일 팬히터')]);
+  buildAll({ root, now: D1 });
+  // 스마트TV(준비 중, noindex)를 설정에서 뺀다. 파일은 디스크에 남는다.
+  writeFileSync(join(root, 'data', 'item-pages.json'), JSON.stringify({ items: [ITEMS[0]] }));
+  writePendingFile(root, [TV]);
+  buildAll({ root, now: D2 });
+  assert.ok(existsSync(join(root, 'deal', '스마트TV', 'index.html')));
+  assert.ok(!sitemapOf(root).includes(TV));
+  assert.ok(!readPending(root).includes(TV));
+  // 색인 페이지(팬히터)는 설정에서 빠져도 유지
+  writeFileSync(join(root, 'data', 'item-pages.json'), JSON.stringify({ items: [ITEMS[1]] }));
+  buildAll({ root, now: D2 });
+  assert.ok(sitemapOf(root).includes(`<loc>${FH}</loc>`));
+  assert.ok(!sitemapOf(root).includes(TV));
+  rmSync(root, { recursive: true });
 });
