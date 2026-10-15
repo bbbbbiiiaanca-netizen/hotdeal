@@ -11,14 +11,13 @@ function thumb(d) {
 function card(d, rank) {
   const p = pct(d);
   const rk = rank >= 1 && rank <= 3 ? `<span class="rank rank-${rank}" aria-label="${rank}위">${rank}</span>` : '';
-  return `<article class="card">
-    <div class="thumb">${thumb(d)}${rk}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
-    <div class="body">
-      <div class="tags"><span class="tag">${esc(d.category)}</span>${d.rocket ? "<span class=\"tag rocket\">로켓</span>" : ""}</div>
-      <h3>${esc(d.title)}</h3>
-      <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b></div>
-      <a class="btn" data-id="${esc(d.id)}" href="${esc(d.url)}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기</a>
-    </div></article>`;
+  // 카드 전체가 쿠팡 링크(a.btn) — 클릭 기록은 아래 a.btn 핸들러가 그대로 처리
+  return `<article class="card"><a class="btn" data-id="${esc(d.id)}" href="${esc(d.url)}" target="_blank" rel="sponsored nofollow noopener">
+    <div class="thumb">${thumb(d)}${rk}</div>
+    <h3>${esc(d.title)}</h3>
+    <div class="price">${p ? `<span class="pct down">${p}%</span>` : ''}<b>${won(d.salePrice)}</b></div>
+    ${p ? `<s class="was">${won(d.originalPrice)}</s>` : ''}
+  </a></article>`;
 }
 // MY 설정(assets/my.js): 꺼 둔 카테고리는 숨기되, 남는 상품이 없으면 전체를 보여줌
 const my = window.HDMY;
@@ -85,7 +84,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('a.btn');
   if (!a) return;
   if (a.getAttribute('href').startsWith('#')) { e.preventDefault(); alert('예시 데이터입니다. 실제 쿠팡 파트너스 링크로 바꿔 주세요.'); return; }
-  // "쿠팡에서 보기" 클릭: 카테고리·키워드 횟수만 이 브라우저에 기록 (전송 없음)
+  // 상품 카드(쿠팡 링크) 클릭: 카테고리·키워드 횟수만 이 브라우저에 기록 (전송 없음)
   const d = all.find(x => String(x.id) === a.dataset.id);
   if (d && my) my.recordClick(d);
 });

@@ -33,3 +33,28 @@ test('TOP 순위: 할인율 1%p 이내면 비싼 상품 먼저', () => {
   const a = {originalPrice: 10000, salePrice: 5000}, b = {originalPrice: 40000, salePrice: 20400}, c = {originalPrice: 10000, salePrice: 3000};
   assert.deepEqual([a, b, c].sort(topCmp), [c, b, a]);
 });
+const inst = readFileSync(new URL('../assets/install.js', import.meta.url), 'utf8');
+const manifest = JSON.parse(readFileSync(new URL('../manifest.json', import.meta.url), 'utf8'));
+test('깔끔한 카드: 카드 전체가 쿠팡 링크(a.btn data-id) 하나, 긴 버튼 글자 없음', () => {
+  assert.match(js, /<a class="btn" data-id="\$\{esc\(d\.id\)\}" href="\$\{esc\(d\.url\)\}"[^>]*rel="sponsored nofollow noopener"/);
+  assert.doesNotMatch(js, /쿠팡에서 보기/);
+  assert.match(js, /closest\('a\.btn'\)/);
+  assert.match(js, /my\.recordClick\(d\)/);
+});
+test('PC 5칸, 모바일 2칸 바둑판', () => {
+  assert.match(css, /\.grid\{display:grid;grid-template-columns:repeat\(2,1fr\)/);
+  assert.match(css, /min-width:1000px\)\{\.grid\{grid-template-columns:repeat\(5,1fr\)/);
+});
+test('홈 화면 추가: 매니페스트·아이콘·버튼·안내', () => {
+  assert.match(html, /<link rel="manifest" href="manifest.json">/);
+  assert.match(html, /id="installBtn"/);
+  assert.match(html, /assets\/install\.js/);
+  assert.equal(manifest.display, 'standalone');
+  for (const i of manifest.icons) assert.ok(readFileSync(new URL('..' + i.src, import.meta.url)).length > 0, i.src);
+  assert.match(inst, /beforeinstallprompt/);
+  assert.match(inst, /display-mode: standalone/);
+});
+test('하단 작은 품목 신청 링크 (텔레그램 봇, 서버 없음)', () => {
+  assert.match(html, /<p class="req"><a href="https:\/\/t\.me\/hotdealoide_bot\?start=request"/);
+  assert.match(css, /\.foot \.req\{[^}]*font-size:11px/);
+});
