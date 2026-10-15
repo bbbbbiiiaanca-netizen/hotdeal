@@ -359,8 +359,10 @@ const descOf = html => html.match(/<meta name="description" content="([^"]*)">/)
 const H = (id, salePrice, seenAt) => ({ title: `팬히터 ${id}`, url: `https://link.coupang.com/a/${id}`, salePrice, originalPrice: 30000, image: '', seenAt });
 const R = { item: ITEMS[0], items: ITEMS, updatedAt: '2026-10-15T07:33:00+09:00' };
 const TG = 'https://t.me/hotdeal_oide';
+const REQ_LINE = '<p class="req"><a href="https://t.me/hotdealoide_bot?start=request" target="_blank" rel="noopener">원하는 품목 신청</a></p>';
 function assertNoBodyTelegram(html) {
-  const body = html.slice(html.indexOf('</header>'));
+  // 푸터의 아주 작은 '원하는 품목 신청'(봇 링크)은 메인과 같은 공통 푸터라 제외
+  const body = html.slice(html.indexOf('</header>')).replace(REQ_LINE, '');
   assert.doesNotMatch(body, /t\.me|tg-btn|hotdeal_oide|텔레그램|Telegram/);
   assert.equal(html.split('https://t.me/hotdeal_oide').length - 1, 1);
 }
@@ -511,7 +513,11 @@ test('헤더·푸터: 메인 index.html과 같은 마크업(경로만 절대경�
   assert.match(header, /<a class="tg-ico" href="https:\/\/t\.me\/hotdeal_oide"[^>]*><svg /);
   assert.doesNotMatch(header, /소개|개인정보처리방침|광고/);
   // MY 모달은 my.js만으로 동작. app.js는 메인 전용 요소(#q·#sort)를 전제하므로 싣지 않음
-  assert.ok(html.includes('</footer>\n<script src="/assets/my.js"></script>\n</body>'));
+  assert.ok(html.includes('</footer>\n<script src="/assets/my.js"></script>\n<script src="/assets/install.js"></script>\n</body>'));
+  // 홈 화면 추가: 메인과 같은 버튼 + manifest
+  assert.match(header, /<button type="button" class="inst-btn" id="installBtn"/);
+  assert.ok(html.includes('<link rel="manifest" href="/manifest.json">'));
+  assert.ok(html.includes(REQ_LINE));
   assert.doesNotMatch(html, /app\.js/);
 });
 
@@ -632,7 +638,7 @@ test('살아 있는 딜: 카드마다 큰 "쿠팡에서 지금 가격 보기" �
   assert.match(html, /<a class="btn-now-price" data-track="1" data-id="fh1" data-cat="[^"]+" data-title="신일 팬히터 SFH-1" href="https:\/\/link\.coupang\.com\/a\/fh1"/);
   assert.doesNotMatch(html, /class="btn"/);
   assert.equal(html.match(/<h1>/g).length, 1);
-  assert.equal((html.match(/t\.me\//g) || []).length, 1);
+  assert.equal((html.replace(REQ_LINE, '').match(/t\.me\//g) || []).length, 1);
   rmSync(root, { recursive: true });
 });
 

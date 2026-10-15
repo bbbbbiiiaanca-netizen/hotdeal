@@ -254,12 +254,12 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
 <meta name="twitter:title" content="${esc(title)}">
 <meta name="twitter:description" content="${esc(desc)}">
 <meta name="twitter:image" content="${ORIGIN}/assets/og.png">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="stylesheet" href="/assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="manifest" href="/manifest.json"><link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
 <header class="top">
   <a class="logo" href="/"><picture><source srcset="/assets/logo.webp" type="image/webp"><img src="/assets/logo.png" alt="핫딜 오이데" width="178" height="44" decoding="async" fetchpriority="high"></picture></a>
-  <div class="top-act"><button type="button" class="my-btn" id="myBtn" aria-haspopup="dialog" aria-expanded="false" aria-label="MY 맞춤 설정"><span aria-hidden="true">MY</span></button><a class="tg-ico" href="${TG_URL}" target="_blank" rel="noopener" aria-label="텔레그램 채널"><svg aria-hidden="true" focusable="false" width="36" height="36" viewBox="0 0 240 240"><circle cx="120" cy="120" r="120" fill="#229ED9"/><path fill="#fff" d="M53.8 117.6c35-15.2 58.3-25.3 70-30.2 33.3-13.9 40.2-16.3 44.7-16.4 1 0 3.2.2 4.7 1.4 1.2 1 1.5 2.3 1.7 3.3.2.9.4 3.1.2 4.8-1.8 19-9.6 65.1-13.6 86.4-1.7 9-5 12-8.2 12.3-7 .6-12.3-4.6-19-9-10.6-6.9-16.5-11.2-26.8-18-11.9-7.8-4.2-12.1 2.6-19.1 1.8-1.8 32.5-29.8 33.1-32.3.1-.3.1-1.5-.6-2.1-.7-.6-1.7-.4-2.5-.2-1.1.2-17.9 11.4-50.6 33.5-4.8 3.3-9.1 4.9-13 4.8-4.3-.1-12.5-2.4-18.7-4.4-7.5-2.4-13.5-3.7-13-7.9.3-2.2 3.3-4.4 8.9-6.7z"/></svg></a></div>
+  <div class="top-act"><button type="button" class="inst-btn" id="installBtn" aria-haspopup="dialog">홈 화면 추가</button><button type="button" class="my-btn" id="myBtn" aria-haspopup="dialog" aria-expanded="false" aria-label="MY 맞춤 설정"><span aria-hidden="true">MY</span></button><a class="tg-ico" href="${TG_URL}" target="_blank" rel="noopener" aria-label="텔레그램 채널"><svg aria-hidden="true" focusable="false" width="36" height="36" viewBox="0 0 240 240"><circle cx="120" cy="120" r="120" fill="#229ED9"/><path fill="#fff" d="M53.8 117.6c35-15.2 58.3-25.3 70-30.2 33.3-13.9 40.2-16.3 44.7-16.4 1 0 3.2.2 4.7 1.4 1.2 1 1.5 2.3 1.7 3.3.2.9.4 3.1.2 4.8-1.8 19-9.6 65.1-13.6 86.4-1.7 9-5 12-8.2 12.3-7 .6-12.3-4.6-19-9-10.6-6.9-16.5-11.2-26.8-18-11.9-7.8-4.2-12.1 2.6-19.1 1.8-1.8 32.5-29.8 33.1-32.3.1-.3.1-1.5-.6-2.1-.7-.6-1.7-.4-2.5-.2-1.1.2-17.9 11.4-50.6 33.5-4.8 3.3-9.1 4.9-13 4.8-4.3-.1-12.5-2.4-18.7-4.4-7.5-2.4-13.5-3.7-13-7.9.3-2.2 3.3-4.4 8.9-6.7z"/></svg></a></div>
 </header>
 <main class="wrap">
   <section class="hero">
@@ -273,9 +273,11 @@ ${relatedHtml}
 </main>
 <footer class="foot">
   <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
+  <p class="req"><a href="https://t.me/hotdealoide_bot?start=request" target="_blank" rel="noopener">원하는 품목 신청</a></p>
   <p><a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
 </footer>
 <script src="/assets/my.js"></script>
+<script src="/assets/install.js"></script>
 </body>
 </html>
 `;
