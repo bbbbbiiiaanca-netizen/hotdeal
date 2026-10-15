@@ -46,11 +46,3 @@ a{color:inherit}
 .page{max-width:760px;margin:0 auto;padding:20px 16px;background:#fff;border-radius:14px}
 .page h1{font-size:24px}.page h2{font-size:17px;margin-top:22px}
 .tags{display:flex;gap:4px;flex-wrap:wrap}.tag{margin-right:0}
-/* 하우스 교차 광고(2026-10-15) — 작은 텍스트 카드, 은은한 페이드만 */
-.cross-ad{max-width:420px;margin:30px auto 0;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--muted);font-size:13px;text-align:center;animation:xadfade 1.2s ease-out both}
-.cross-ad-title{margin:0 0 6px;font-size:12px}
-.cross-ad ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.cross-ad a{color:var(--ink);text-decoration:none}.cross-ad a:hover{text-decoration:underline}
-.cross-ad + .foot{margin-top:20px}
-@keyframes xadfade{from{opacity:0}to{opacity:1}}
-@media (prefers-reduced-motion:reduce){.cross-ad{animation:none}}
