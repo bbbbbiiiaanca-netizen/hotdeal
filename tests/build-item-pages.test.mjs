@@ -440,8 +440,7 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   ];
   const html = renderPage({ ...R, today: [], history });
   const ended = html.slice(html.indexOf('<div class="ended-deal">'), html.indexOf('</div>', html.indexOf('<div class="ended-deal">')));
-  assert.match(html, /<span class="tag ended">끝난 딜<\/span>/);
-  assert.match(ended, /신일 팬히터 마지막/);
+  assert.match(ended, /<p>신일 팬히터 마지막<\/p>/);
   assert.match(ended, /기록 가격 <b>19,300원<\/b> <span class="muted">\(2026-10-14 확인, 지난 기록\)<\/span>/);
   // 텔레그램 버튼이 가격 기록 옆(같은 블록)에
   assert.ok(ended.includes(`<a class="tg-btn" href="${TG}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a>`));
@@ -470,6 +469,27 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   assert.ok(!html.includes(NOINDEX_META));
   assert.ok(html.includes(`<div class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</div>`));
   assert.ok(html.includes(`<p>${DISCLOSURE}</p>\n</footer>`));
+});
+
+test('끝난 딜 배너: h1 바로 아래 큰 배너 하나, 작은 회색 배지 없음, 오늘 딜·준비 중 페이지엔 없음', () => {
+  const BANNER = '<p class="ended-banner" role="status">끝난 딜이에요</p>';
+  const ended = renderPage({ ...R, today: [], history: [H('last', 19300, '2026-10-14T07:33:00+09:00')] });
+  assert.ok(ended.includes(`<h1>팬히터 비교</h1>\n    ${BANNER}\n`));
+  assert.equal(ended.split(BANNER).length - 1, 1);
+  assert.doesNotMatch(ended, /class="tag ended"/);
+  // 나머지는 그대로: 기록 가격·텔레그램·지금 가격 버튼·고지문
+  assert.match(ended, /기록 가격 <b>19,300원<\/b>/);
+  assert.match(ended, /class="btn-now-price"/);
+  assert.match(ended, /class="muted ended-disclosure"/);
+  const current = renderPage({ ...R, today: [deal('n', '팬히터 n')], history: [H('n', 25000, '2026-10-15T07:33:00+09:00')] });
+  const never = renderPage({ ...R, today: [], history: [] });
+  for (const html of [current, never]) {
+    assert.doesNotMatch(html, /ended-banner/);
+    assert.doesNotMatch(html, /끝난 딜/);
+  }
+  const css = readFileSync(new URL('../assets/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.ended-banner\{[^}]*font-weight:800/);
+  assert.doesNotMatch(css, /\.tag\.ended/);
 });
 
 test('끝난 딜 페이지: 같은 URL, noindex 없음, 사이트맵 유지, 파일·state 기록 유지', () => {

@@ -153,10 +153,10 @@ function endedBody(item, history) {
   const kw = item.keyword;
   const last = history[0];
   const rows = history.map(d => `<li><span class="muted">${kstDate(d.seenAt)}</span> ${esc(d.title)} · ${won(d.salePrice)} <span class="muted">지난 딜</span></li>`).join('');
-  return `<h2 class="sec"><span class="tag ended">끝난 딜</span> 지난 ${esc(kw)} 딜</h2>
+  return `<h2 class="sec">지난 ${esc(kw)} 딜</h2>
     <p class="muted">오늘 갱신에는 ${esc(kw)} 딜이 없었어요. 아래 가격은 확인 당시 기록일 뿐 지금 가격이 아닙니다.</p>
     <div class="ended-deal">
-      <p><span class="tag ended">끝난 딜</span> ${esc(last.title)}</p>
+      <p>${esc(last.title)}</p>
       <p>기록 가격 <b>${won(last.salePrice)}</b> <span class="muted">(${kstDate(last.seenAt)} 확인, 지난 기록)</span></p>
       <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a></p>
       <a class="btn-now-price" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
@@ -180,11 +180,12 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   const updated = t ? `업데이트: ${t.y}년 ${t.m}월 ${t.d}일 ${t.hh}:${t.mm} (KST)` : '';
   const robots = isIndexable({ today, history }) ? '' : `\n${NOINDEX_META}`;
 
+  const ended = !today.length && history.length > 0;
   let body;
   if (today.length) {
     body = `<h2 class="sec">오늘의 ${esc(kw)} 핫딜 ${today.length}개</h2>
     <div class="grid">${today.map(d => card(d, item)).join('')}</div>`;
-  } else if (history.length) {
+  } else if (ended) {
     body = endedBody(item, history);
   } else {
     body = `<h2 class="sec">준비 중</h2>
@@ -224,7 +225,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
 </header>
 <main class="wrap">
   <section class="hero">
-    <h1>${esc(title)}</h1>
+    <h1>${esc(title)}</h1>${ended ? '\n    <p class="ended-banner" role="status">끝난 딜이에요</p>' : ''}
     ${updated ? `<p class="muted">${updated}</p>` : ''}
   </section>
   <section>
