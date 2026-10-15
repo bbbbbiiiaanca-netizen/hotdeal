@@ -147,7 +147,7 @@ export function lowestNow({ today, history, minSalePrice, updatedAt }) {
 
 /**
  * 오늘 딜이 끝난 품목: 마지막 딜과 최근 딜 기록은 링크 없는 텍스트(날짜·가격)로만 보여 준다.
- * 쿠팡 링크는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(구매 버튼 스타일 아님).
+ * 쿠팡 링크는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(.btn-now-price, 카드 구매 버튼 .btn 아님). 고지문은 버튼 바로 아래.
  */
 function endedBody(item, history) {
   const kw = item.keyword;
@@ -158,8 +158,9 @@ function endedBody(item, history) {
     <div class="ended-deal">
       <p><span class="tag ended">끝난 딜</span> ${esc(last.title)}</p>
       <p>기록 가격 <b>${won(last.salePrice)}</b> <span class="muted">(${kstDate(last.seenAt)} 확인, 지난 기록)</span></p>
-      <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a> <a class="chip" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a></p>
-      <p class="muted">${DISCLOSURE}</p>
+      <p><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a></p>
+      <a class="btn-now-price" href="${esc(withSubId(last.url, item.subId))}" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
+      <p class="muted ended-disclosure">${DISCLOSURE}</p>
     </div>
     <h2 class="sec">최근 딜 기록</h2>
     <ul class="recent-deals">${rows}</ul>`;

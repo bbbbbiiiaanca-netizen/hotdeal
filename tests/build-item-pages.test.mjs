@@ -445,9 +445,13 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   assert.match(ended, /기록 가격 <b>19,300원<\/b> <span class="muted">\(2026-10-14 확인, 지난 기록\)<\/span>/);
   // 텔레그램 버튼이 가격 기록 옆(같은 블록)에
   assert.ok(ended.includes(`<a class="tg-btn" href="${TG}" target="_blank" rel="noopener">✈️ 텔레그램으로 매일 받기</a>`));
-  // 쿠팡 링크는 "쿠팡에서 지금 가격 보기" (구매 버튼 스타일 .btn 아님, sponsored)
-  assert.ok(ended.includes('<a class="chip" href="https://link.coupang.com/a/last" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>'));
-  assert.ok(ended.includes(DISCLOSURE));
+  // 쿠팡 링크는 "쿠팡에서 지금 가격 보기" 전용 버튼(.btn-now-price, 카드 구매 버튼 .btn·chip 아님, sponsored)
+  const NOW_BTN = '<a class="btn-now-price" href="https://link.coupang.com/a/last" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>';
+  assert.ok(ended.includes(NOW_BTN));
+  assert.doesNotMatch(ended, /class="chip"/);
+  // 고지문은 버튼 바로 다음 문단(일반 흐름이라 겹치지 않음)
+  assert.ok(ended.includes(`${NOW_BTN}\n      <p class="muted ended-disclosure">${DISCLOSURE}</p>`));
+  assert.ok(ended.indexOf(NOW_BTN) < ended.indexOf(DISCLOSURE));
   // 라이브 구매 버튼·할인 배지·카드 없음
   assert.doesNotMatch(html, /class="btn"/);
   assert.doesNotMatch(html, /쿠팡에서 보기</);
@@ -460,7 +464,7 @@ test('끝난 딜: 마지막 딜은 기록으로만, 텔레그램·쿠팡 지금 
   assert.doesNotMatch(list, /<a /);
   // 딜 URL 앵커는 '쿠팡에서 지금 가격 보기' 버튼 하나뿐(예전 딜 URL로 가는 링크 없음)
   const dealAnchors = [...html.matchAll(/<a [^>]*href="https:\/\/link\.coupang\.com\/[^"]*"[^>]*>[^<]*<\/a>/g)].map(m => m[0]);
-  assert.deepEqual(dealAnchors, ['<a class="chip" href="https://link.coupang.com/a/last" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>']);
+  assert.deepEqual(dealAnchors, [NOW_BTN]);
   assert.ok(!html.includes('https://link.coupang.com/a/old'));
   // 색인 유지, 고지문은 상단·하단에도
   assert.ok(!html.includes(NOINDEX_META));
@@ -528,4 +532,15 @@ test('지우지 않음: 딜이 있었던 품목은 며칠 연속 딜이 없어�
   assert.ok(sitemapOf(root).includes(`<loc>${FH}</loc>`));
   assert.equal(readState(root).items['팬히터'].deals.length, 1);
   rmSync(root, { recursive: true });
+});
+
+test('style.css: .btn-now-price는 일반 흐름 버튼, 반짝임은 버튼 안에 잘림, reduced-motion이면 애니메이션 끔', () => {
+  const css = readFileSync(new URL('../assets/style.css', import.meta.url), 'utf8');
+  const rule = css.match(/\.btn-now-price\{([^}]*)\}/)[1];
+  assert.match(rule, /min-height:52px/);
+  assert.match(rule, /overflow:hidden/);
+  assert.match(rule, /position:relative/);
+  assert.match(rule, /margin:[^;]*14px/); // 고지문 앞 아래 여백
+  assert.doesNotMatch(css, /\.btn-now-price[^{]*\{[^}]*position:(fixed|sticky)/);
+  assert.match(css, /@media\(prefers-reduced-motion:reduce\)\{\.btn-now-price,\.btn-now-price::after\{animation:none\}/);
 });
