@@ -4,8 +4,8 @@
 "오이데~" 주황 #FF7A00, 얇은 흰 외곽선 + 얇은 어두운 그림자. 배경은 투명.
 어느 위치에서 실행해도 레포 루트 기준으로 저장한다.
 
-요구 사항: Pillow >= 10 (WebP 지원 빌드), Jua 폰트(Google Fonts, OFL; 레포에 포함하지 않음).
-  (Do Hyeon 은 '데'가 '테'처럼 보여서 Jua 로 교체)
+요구 사항: Pillow >= 10 (WebP 지원 빌드), Black Han Sans(검은고딕, Google Fonts, OFL; brand/fonts 에 포함).
+  (Do Hyeon·Jua 는 작게 보면 '데'가 '테'처럼 읽혀서 Black Han Sans 로 교체)
   폰트 위치는 환경변수 HOTDEAL_LOGO_FONT 로 지정하거나 FONT_CANDIDATES 경로 중 하나에 둔다.
 사용법: python3 brand/header_logo.py
 출력: assets/logo.png, assets/logo.webp (무손실). 356x88 고정이라 HTML width/height(178x44)와 딱 맞는다.
@@ -15,14 +15,8 @@ import os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "assets")
-FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/sand-box/google/Jua/Jua-Regular.ttf",
-    os.path.join(ROOT, "brand", "fonts", "Jua-Regular.ttf"),
-    "/usr/share/fonts/truetype/jua/Jua-Regular.ttf",
-    "/usr/share/fonts/truetype/google-fonts/Jua-Regular.ttf",
-    os.path.expanduser("~/.fonts/Jua-Regular.ttf"),
-    os.path.expanduser("~/.local/share/fonts/Jua-Regular.ttf"),
-]
+FONT_CANDIDATES = [os.path.join(ROOT, "brand", "fonts", "BlackHanSans-Regular.ttf")]
+EXPECTED_FAMILY = "Black Han Sans"
 
 
 def find_font():
@@ -32,13 +26,18 @@ def find_font():
         sys.exit(f"HOTDEAL_LOGO_FONT 경로에 폰트 파일이 없습니다: {env}")
     for p in FONT_CANDIDATES:
         if os.path.isfile(p): return p
-    sys.exit("Jua 폰트(Google Fonts, OFL 라이선스)가 필요합니다.\n"
-             "https://fonts.google.com/specimen/Jua 에서 Jua-Regular.ttf 를 받은 뒤\n"
-             "  HOTDEAL_LOGO_FONT=/경로/Jua-Regular.ttf python3 brand/header_logo.py\n"
+    sys.exit("Black Han Sans 폰트(Google Fonts, OFL 라이선스)가 필요합니다.\n"
+             "https://fonts.google.com/specimen/Black+Han+Sans 에서 BlackHanSans-Regular.ttf 를 받은 뒤\n"
+             "  HOTDEAL_LOGO_FONT=/경로/BlackHanSans-Regular.ttf python3 brand/header_logo.py\n"
              "처럼 지정하거나 아래 경로 중 하나에 두세요:\n  " + "\n  ".join(FONT_CANDIDATES))
 
 
 DH = find_font()
+# 다른 글씨체로 조용히 대체되지 않도록 실제 불러온 폰트 이름을 확인하고, 아니면 바로 중단
+_fam = ImageFont.truetype(DH, 40).getname()[0]
+if _fam != EXPECTED_FAMILY:
+    sys.exit(f"폰트가 {EXPECTED_FAMILY} 이(가) 아닙니다: {_fam} ({DH})")
+print("font:", _fam, DH, file=sys.stderr)
 
 K = 8                 # supersample 배율
 FINAL_W, FINAL_H = 356, 88  # 최종 크기(px) = HTML 178x44 @2x
@@ -75,7 +74,7 @@ text = Image.new("RGBA", (W, CH), (0, 0, 0, 0))
 text.alpha_composite(w1, (0, (CH - w1.height) // 2 - bounce))
 text.alpha_composite(w2, (w1.width + gap, (CH - w2.height) // 2 + bounce))
 
-# trim → 356x88 고정 축소 (Jua 는 Do Hyeon 보다 살짝 넓어 가로를 약 5% 좁혀 기존 크기에 맞춤)
+# trim → 356x88 고정 축소 (356x88 고정)
 bb = text.getbbox(); m = K
 text = text.crop((bb[0] - m, bb[1] - m, bb[2] + m, bb[3] + m))
 out = text.resize((FINAL_W, FINAL_H), Image.LANCZOS)
