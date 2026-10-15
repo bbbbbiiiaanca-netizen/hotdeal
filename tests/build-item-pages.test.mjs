@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { withSubId, matchDeals, titleMatches, mergeHistory, buildAll, flushIndexNow, readPending, pageUrl, renderPage, isIndexable, NOINDEX_META, DISCLOSURE, HISTORY_MAX } from '../scripts/build-item-pages.mjs';
+import { withSubId, matchDeals, titleMatches, mergeHistory, buildAll, flushIndexNow, readPending, pageUrl, renderPage, isIndexable, NOINDEX_META, DISCLOSURE, HISTORY_MAX, relatedDeals } from '../scripts/build-item-pages.mjs';
 import { sameOriginUrls } from '../scripts/indexnow-submit.mjs';
 
 /** 쿠팡 파트너스 고지문: 페이지 전체에서 정확히 1번, 푸터 안에 메인과 같은 문단으로 */
@@ -640,4 +640,40 @@ test('my.js: data-track 클릭을 메인 카드와 같은 recordClick으로 기�
   const js = readFileSync(new URL('../assets/my.js', import.meta.url), 'utf8');
   assert.match(js, /closest\('a\[data-track\]'\)/);
   assert.match(js, /recordClick\(\{ category: a\.dataset\.cat/);
+});
+
+test('비슷한 핫딜: 같은 카테고리 실제 딜 최대 4개, 품목 페이지 있으면 그 페이지로, 없으면 파트너스 링크', () => {
+  const cat = '가전·디지털';
+  const deals = [
+    deal('f1', '팬히터 A', { category: cat }),
+    deal('t1', '스마트TV B', { category: cat }),
+    deal('x1', '전기포트 C', { category: cat }),
+    deal('x2', '드라이기 D', { category: cat }),
+    deal('x3', '청소기 E', { category: cat }),
+    deal('x4', '토스터 F', { category: cat }),
+    deal('o1', '선크림', { category: '뷰티' }),
+  ];
+  const item = ITEMS[0];
+  const today = matchDeals(deals, item);
+  const rel = relatedDeals({ deals, item, items: ITEMS, today });
+  assert.equal(rel.length, 4);
+  assert.ok(rel.every(r => r.deal.category === cat && !r.deal.title.includes('팬히터')));
+  assert.equal(rel[0].page, '/deal/' + encodeURIComponent('스마트TV') + '/');
+  assert.equal(rel[1].page, null);
+  const html = renderPage({ ...R, today, history: [], related: rel });
+  assert.match(html, /<h2 class="sec">비슷한 핫딜<\/h2>/);
+  assert.equal((html.match(/class="rel-card"/g) ?? []).length, 4);
+  assert.ok(html.includes(`href="${rel[0].page}"`));
+  assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/x1" data-track="1"[^>]*rel="sponsored nofollow noopener"/);
+  assert.equal((html.match(/<h1[\s>]/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /고르는 방법|고르는 기준|품목별 핫딜|class="chip"|전체 핫딜/);
+});
+
+test('비슷한 핫딜: 같은 카테고리 딜이 없으면 섹션을 생략하고, 끝난 딜 페이지도 설명·칩이 없다', () => {
+  const item = ITEMS[0];
+  assert.deepEqual(relatedDeals({ deals: [deal('o1', '선크림', { category: '뷰티' })], item, items: ITEMS, today: [] }), []);
+  const h = { ...deal('a', '팬히터 a'), seenAt: '2026-10-14T07:00:00+09:00' };
+  for (const html of [renderPage({ ...R, today: [], history: [h] }), renderPage({ ...R, today: [], history: [] })]) {
+    assert.doesNotMatch(html, /비슷한 핫딜|고르는 방법|고르는 기준|품목별 핫딜|class="chip"/);
+  }
 });

@@ -125,6 +125,44 @@ function card(d, item, seenNote) {
     </div></article>`;
 }
 
+/**
+ * '비슷한 핫딜': 오늘 deals.json에서 같은 카테고리(item.category)의 파트너스 딜 중
+ * 이 품목에 이미 보이는 딜(today)을 뺀 최대 RELATED_MAX개. 그 딜에 맞는 다른 품목 페이지가 있으면 그 페이지로,
+ * 없으면 쿠팡 파트너스 링크로 연결한다. 실제 데이터만 쓰고, 없으면 빈 배열(섹션 생략).
+ */
+export const RELATED_MAX = 4;
+export function relatedDeals({ deals, item, items, today }) {
+  const shown = new Set((today ?? []).map(d => d.url));
+  const seen = new Set();
+  const out = [];
+  for (const d of deals ?? []) {
+    if (out.length >= RELATED_MAX) break;
+    if (!d || typeof d.title !== 'string' || !isPartnersUrl(d.url) || !(d.salePrice > 0)) continue;
+    if (d.category !== item.category || shown.has(d.url) || seen.has(d.url)) continue;
+    if (titleMatches(d.title, item.match)) continue;
+    seen.add(d.url);
+    const page = (items ?? []).find(i => i.slug !== item.slug && titleMatches(d.title, i.match));
+    out.push({ deal: d, page: page ? pagePath(page.slug) : null });
+  }
+  return out;
+}
+
+function relatedCard({ deal: d, page }) {
+  const p = pct(d);
+  const img = d.image
+    ? `<img src="${esc(d.image)}" alt="" loading="lazy">`
+    : '<div class="ph" aria-hidden="true">🛒</div>';
+  const attrs = page
+    ? `href="${esc(page)}"`
+    : `href="${esc(d.url)}" data-track="1" data-id="${esc(d.id ?? '')}" data-cat="${esc(d.category ?? '')}" data-title="${esc(d.title)}" target="_blank" rel="sponsored nofollow noopener"`;
+  return `<article class="rel-card"><a ${attrs}>
+      <div class="rel-thumb">${img}</div>
+      <h3>${esc(d.title)}</h3>
+      <div class="rel-price">${p ? `<span class="rel-pct">${p}%</span>` : ''}<b>${won(d.salePrice)}</b></div>
+      ${p ? `<s class="rel-was">${won(d.originalPrice)}</s>` : ''}
+    </a></article>`;
+}
+
 /** 기록 최저가: 이전 누적 최저가(prevMin)와 지금 기록(history) 중 가장 낮은 salePrice. 기록이 없으면 null */
 export function recordMin(history, prevMin) {
   const prices = (history ?? []).map(d => d.salePrice).filter(n => n > 0);
@@ -168,7 +206,7 @@ function endedBody(item, history) {
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
  * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 최저가 이하일 때만 ' 최저가 (YYYY-MM-DD 기준, 우리 기록)'을 붙인다.
  */
-export function renderPage({ item, items, today, history, updatedAt, minSalePrice }) {
+export function renderPage({ item, items, today, history, updatedAt, minSalePrice, related = [] }) {
   const kw = item.keyword;
   const low = lowestNow({ today, history, minSalePrice, updatedAt });
   const title = `${kw} 비교${low ? ` 최저가 (${low.date} 기준, 우리 기록)` : ''}`;
@@ -190,8 +228,11 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
     <p class="muted">준비 중: 아직 이 품목의 확인된 쿠팡 파트너스 상품이 없어요. 매일 아침 갱신 때 들어오면 여기에 표시됩니다.</p>`;
   }
 
-  const others = items.filter(i => i.slug !== item.slug)
-    .map(i => `<a class="chip" href="${pagePath(i.slug)}">${esc(i.keyword)}</a>`).join('');
+  const relatedHtml = related.length ? `
+  <section class="related">
+    <h2 class="sec">비슷한 핫딜</h2>
+    <div class="rel-grid">${related.map(relatedCard).join('')}</div>
+  </section>` : '';
 
   return `<!doctype html>
 <html lang="ko">
@@ -228,16 +269,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   <section>
     ${body}
   </section>
-  <section class="page item-guide">
-    <h2>이 페이지 상품 고르는 방법</h2>
-    <p>매일 아침 쿠팡 골드박스·특가에서 ${esc(kw)} 상품 중 쿠팡 파트너스 링크가 확인된 것만 담습니다. 가격과 할인율은 수집 시점 기준이라 지금은 다를 수 있으니, 구매 전 쿠팡 상품 페이지에서 확인하세요.</p>
-    <h2>고르는 기준</h2>
-    <p>${esc(item.guide)}</p>
-  </section>
-  <section>
-    <h2 class="sec">품목별 핫딜</h2>
-    <div class="item-links"><a class="chip" href="/index.html">🏠 전체 핫딜</a>${others}</div>
-  </section>
+${relatedHtml}
 </main>
 <footer class="foot">
   <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
@@ -344,7 +376,8 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
     const min = recordMin([...(rec.deals ?? []), ...matched], rec.minSalePrice);
     if (min !== null) rec.minSalePrice = min;
     rec.deals = mergeHistory(rec.deals, matched, seenAt);
-    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, minSalePrice: rec.minSalePrice });
+    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, minSalePrice: rec.minSalePrice,
+      related: relatedDeals({ deals: data.deals, item, items, today: matched }) });
     const indexable = isIndexable({ today: matched, history: rec.deals });
     if (!indexable) noindex.add(pageUrl(item.slug));
     const file = path.join(root, 'deal', item.slug, 'index.html');
