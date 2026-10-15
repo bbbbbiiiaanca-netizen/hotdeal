@@ -172,7 +172,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   const kw = item.keyword;
   const low = lowestNow({ today, history, minSalePrice, updatedAt });
   const title = `${kw} 비교${low ? ` 최저가 (${low.date} 기준, 우리 기록)` : ''}`;
-  const desc = title;
+  const desc = `${title} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`;
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
   const updated = t ? `업데이트: ${t.y}년 ${t.m}월 ${t.d}일 ${t.hh}:${t.mm} (KST)` : '';

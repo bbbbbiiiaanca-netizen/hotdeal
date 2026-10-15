@@ -370,7 +370,7 @@ test('제목 기본값: title·h1·description 모두 "{품목} 비교" (최저�
     history: [H('n', 25000, '2026-10-15T07:33:00+09:00'), H('o', 19300, '2026-10-10T07:00:00+09:00')] });
   assert.equal(titleOf(html), '팬히터 비교');
   assert.equal(h1Of(html), '팬히터 비교');
-  assert.equal(descOf(html), '팬히터 비교');
+  assert.equal(descOf(html), '팬히터 비교 | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데');
   assert.doesNotMatch(html, /최저가·핫딜|오늘 핫딜<\/h1>/);
   // 준비 중·끝난 딜도 기본값
   assert.equal(titleOf(renderPage({ ...R, today: [], history: [] })), '팬히터 비교');
@@ -384,7 +384,7 @@ test('최저가: 오늘 딜이 기록 최저가 이하일 때만, 날짜는 그 
     history: [H('n', 19300, '2026-10-13T16:00:00Z'), H('o', 19300, '2026-10-01T07:00:00+09:00')] });
   assert.equal(titleOf(eq), `팬히터 비교${suffix}`);
   assert.equal(h1Of(eq), `팬히터 비교${suffix}`);
-  assert.equal(descOf(eq), `팬히터 비교${suffix}`);
+  assert.equal(descOf(eq), `팬히터 비교${suffix} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`);
   // 오늘 딜 여러 개면 가장 싼 딜 기준
   const multi = renderPage({ ...R, today: [deal('a', '팬히터 a', { salePrice: 50000 }), deal('b', '팬히터 b', { salePrice: 9000 })],
     history: [H('a', 50000, '2026-10-15T07:33:00+09:00'), H('b', 9000, '2026-10-14T07:33:00+09:00'), H('o', 10000, '2026-10-01T07:00:00+09:00')] });
