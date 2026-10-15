@@ -273,7 +273,6 @@ ${relatedHtml}
 </main>
 <footer class="foot">
   <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
-  <p>가격과 재고는 수시로 바뀝니다. 구매 전 쿠팡 상품 페이지에서 꼭 확인하세요.</p>
   <p><a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
 </footer>
 <script src="/assets/my.js"></script>

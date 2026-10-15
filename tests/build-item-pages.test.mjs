@@ -497,7 +497,7 @@ test('고지문: 오늘 딜·끝난 딜·준비 중 페이지 모두 정확히 1
 
 test('헤더·푸터: 메인 index.html과 같은 마크업(경로만 절대경로), 로고는 /로, MY는 my.js만', () => {
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const abs = s => s.replace(/(src|srcset|href)="(assets\/|about\.html|privacy\.html)/g, '$1="/$2').replace('class="logo" href="index.html"', 'class="logo" href="/"');
+  const abs = s => s.replace(/(src|srcset|href)="(assets\/|about\.html|privacy\.html)/g, '$1="/$2').replace('class="logo" href="index.html"', 'class="logo" href="/"').replace(/<h1 class="logo-h1">(.*?)<\/h1>/, '$1'); // 품목 페이지는 상품명이 h1이라 로고는 h1 밖 일반 링크
   const block = (s, open, close) => s.slice(s.indexOf(open), s.indexOf(close) + close.length);
   const html = renderPage({ ...R, today: [], history: [] });
   const header = block(html, '<header class="top">', '</header>');
