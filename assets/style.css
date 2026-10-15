@@ -75,3 +75,4 @@ body.my-lock{overflow:hidden}
 .page{max-width:760px;margin:0 auto;padding:20px 16px;background:#fff;border-radius:14px}
 .page h1{font-size:24px}.page h2{font-size:17px;margin-top:22px}
 .tags{display:flex;gap:4px;flex-wrap:wrap}.tag{margin-right:0}
+.item-links{display:flex;flex-wrap:wrap;gap:6px}.item-guide{margin-top:22px}a.chip{text-decoration:none;color:var(--ink)}a.chip:hover{border-color:var(--ink)}

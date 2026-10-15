@@ -1,0 +1,340 @@
+#!/usr/bin/env node
+/**
+ * 품목별 정적 페이지 생성 — deals.json + data/item-pages.json → deal/<slug>/index.html, sitemap.xml
+ * 페이지는 지우지 않는다. 내용이 바뀐 파일만 쓰고, 바뀐 페이지 URL 목록(JSON)을 stdout에 출력한다.
+ *
+ * 사용: node scripts/build-item-pages.mjs [--indexnow] [--dry-run]
+ *   --indexnow  제출 대기 URL(바뀐 페이지 누적)을 scripts/indexnow-submit.mjs로 제출, 성공하면 대기 목록을 비운다
+ *   --dry-run   --indexnow와 함께 쓰면 제출 직전까지만 확인(indexnow-submit.mjs --dry-run). 대기 목록은 그대로 둔다
+ * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 페이지 마지막 변경일)
+ *                  state/indexnow-pending.json (아직 제출하지 못한 URL)
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+export const ROOT = path.join(HERE, '..');
+export const ORIGIN = 'https://hotdeal.sooinlab.com';
+export const PARTNERS_PREFIX = 'https://link.coupang.com/';
+export const DISCLOSURE = '이 포스팅은 쿠팡 파트너스 활동의 일환으로, 이에 따른 일정액의 수수료를 제공받습니다.';
+export const HISTORY_MAX = 10;
+const TG_URL = 'https://t.me/hotdeal_oide';
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const won = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원';
+const pct = d => d.originalPrice > d.salePrice ? Math.round((1 - d.salePrice / d.originalPrice) * 100) : 0;
+
+export const pagePath = slug => `/deal/${encodeURIComponent(slug)}/`;
+export const pageUrl = slug => ORIGIN + pagePath(slug);
+
+// KST 기준 날짜·시각 부품
+function kst(date) {
+  const t = new Date(new Date(date).getTime() + 9 * 3600 * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate(), hh: p(t.getUTCHours()), mm: p(t.getUTCMinutes()), ymd: `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}` };
+}
+export const kstDate = date => kst(date).ymd;
+
+/**
+ * subId 붙이기. 쿠팡 단축 링크(link.coupang.com/a/...)는 subId를 받을 수 없어 그대로 둔다.
+ * lptag·subId 파라미터가 이미 있는 긴 파트너스 URL만 subId 값을 넣는다(기존 키 대소문자 유지).
+ * 그 밖의 URL도 그대로 둔다.
+ */
+export function withSubId(url, subId) {
+  if (!subId || typeof url !== 'string') return url;
+  let u;
+  try { u = new URL(url); } catch { return url; }
+  if (u.hostname === 'link.coupang.com' && u.pathname.startsWith('/a/')) return url;
+  const keys = [...u.searchParams.keys()];
+  const subKey = keys.find(k => k.toLowerCase() === 'subid');
+  const hasLptag = keys.some(k => k.toLowerCase() === 'lptag');
+  if (!subKey && !hasLptag) return url;
+  u.searchParams.set(subKey ?? 'subId', subId);
+  return u.toString();
+}
+
+export const isPartnersUrl = url => typeof url === 'string' && url.startsWith(PARTNERS_PREFIX);
+
+/**
+ * 제목 매칭 규칙(대소문자 무시). 문자열 → 포함, 배열 → 하나라도(any), { all: [...] } → 모두,
+ * { any: [...] } → 하나라도, all·any를 같이 쓰면 둘 다 만족. 안쪽 규칙도 같은 형식으로 중첩된다.
+ * 예: { "all": ["톤업", { "any": ["선", "spf"] }] }
+ */
+export function titleMatches(title, rule) {
+  const t = String(title).toLowerCase();
+  const test = r => {
+    if (typeof r === 'string') return r !== '' && t.includes(r.toLowerCase());
+    if (Array.isArray(r)) return r.some(test);
+    if (r && typeof r === 'object' && (Array.isArray(r.all) || Array.isArray(r.any))) {
+      return (!Array.isArray(r.all) || (r.all.length > 0 && r.all.every(test)))
+        && (!Array.isArray(r.any) || r.any.some(test));
+    }
+    return false;
+  };
+  return test(rule ?? []);
+}
+
+/** 제목이 item.match 규칙에 맞고 파트너스 링크인 딜. url 기준 중복 제거. */
+export function matchDeals(deals, item) {
+  const seen = new Set();
+  return (deals ?? []).filter(d => {
+    if (!d || typeof d.title !== 'string' || !isPartnersUrl(d.url) || !(d.salePrice > 0)) return false;
+    if (!titleMatches(d.title, item.match) || seen.has(d.url)) return false;
+    seen.add(d.url);
+    return true;
+  });
+}
+
+/** 오늘 딜을 앞에, 이전 기록은 url 중복을 빼고 뒤에 붙여 최근 HISTORY_MAX개만 남긴다. */
+export function mergeHistory(prev, matched, seenAt) {
+  const today = matched.map(d => ({
+    title: d.title, salePrice: d.salePrice, originalPrice: d.originalPrice ?? d.salePrice,
+    image: d.image ?? '', url: d.url, seenAt,
+  }));
+  const urls = new Set(today.map(d => d.url));
+  return [...today, ...(prev ?? []).filter(d => !urls.has(d.url))].slice(0, HISTORY_MAX);
+}
+
+function card(d, item, seenNote) {
+  const p = pct(d);
+  const href = withSubId(d.url, item.subId);
+  const missing = item.subId && href === d.url ? ' data-subid-missing="1"' : '';
+  const img = d.image
+    ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">`
+    : '<div class="ph" aria-hidden="true">🛒</div>';
+  return `<article class="card">
+    <div class="thumb">${img}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
+    <div class="body">
+      <div class="tags"><span class="tag">${esc(item.category)}</span>${seenNote ? `<span class="tag">${esc(seenNote)}</span>` : ''}</div>
+      <h3>${esc(d.title)}</h3>
+      <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b>${p ? ` <span class="muted">${p}% 할인</span>` : ''}</div>
+      <a class="btn" href="${esc(href)}"${missing} target="_blank" rel="sponsored nofollow noopener">쿠팡에서 보기</a>
+    </div></article>`;
+}
+
+/** 페이지 HTML. 오늘 딜 → 오늘 딜 목록, 없고 기록 있음 → 오늘은 딜 없음 + 최근 딜, 둘 다 없음 → 준비 중 */
+export function renderPage({ item, items, today, history, updatedAt }) {
+  const kw = item.keyword;
+  const title = `${kw} 최저가·핫딜 | 핫딜 오이데`;
+  const desc = `${kw} 오늘 최저가 핫딜. 매일 아침 쿠팡 특가에서 ${kw} 할인 상품만 골라 가격과 할인율을 정리합니다.`;
+  const canonical = pageUrl(item.slug);
+  const t = updatedAt ? kst(updatedAt) : null;
+  const updated = t ? `업데이트: ${t.y}년 ${t.m}월 ${t.d}일 ${t.hh}:${t.mm} (KST)` : '';
+
+  let body;
+  if (today.length) {
+    body = `<h2 class="sec">오늘의 ${esc(kw)} 핫딜 ${today.length}개</h2>
+    <div class="grid">${today.map(d => card(d, item)).join('')}</div>`;
+  } else if (history.length) {
+    body = `<h2 class="sec">오늘은 딜 없음</h2>
+    <p class="muted">오늘 갱신에는 ${esc(kw)} 상품이 없었어요. 아래는 최근에 확인한 딜입니다. 가격은 확인 당시 기준이라 지금은 달라졌을 수 있으니 쿠팡에서 꼭 확인하세요.</p>
+    <h2 class="sec">최근 딜</h2>
+    <div class="grid">${history.map(d => { const s = kst(d.seenAt); return card(d, item, `${s.m}/${s.d} 확인`); }).join('')}</div>`;
+  } else {
+    body = `<h2 class="sec">준비 중</h2>
+    <p class="muted">준비 중: 아직 이 품목의 확인된 쿠팡 파트너스 상품이 없어요. 매일 아침 갱신 때 들어오면 여기에 표시됩니다.</p>`;
+  }
+
+  const others = items.filter(i => i.slug !== item.slug)
+    .map(i => `<a class="chip" href="${pagePath(i.slug)}">${esc(i.keyword)}</a>`).join('');
+
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+<meta name="description" content="${esc(desc)}">
+<link rel="canonical" href="${esc(canonical)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="핫딜 오이데">
+<meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${esc(canonical)}">
+<meta property="og:image" content="${ORIGIN}/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(desc)}">
+<meta name="twitter:image" content="${ORIGIN}/assets/og.png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<div class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</div>
+<header class="top">
+  <a class="logo" href="/index.html">🔥 핫딜 <b>오이데</b></a>
+  <div class="top-r"><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ Telegram으로 매일 받기</a><nav><a href="/about.html">소개</a><a href="/privacy.html">개인정보처리방침</a></nav></div>
+</header>
+<main class="wrap">
+  <section class="hero">
+    <h1>${esc(kw)} 오늘 핫딜</h1>
+    ${updated ? `<p class="muted">${updated}</p>` : ''}
+  </section>
+  <section>
+    ${body}
+  </section>
+  <section class="page item-guide">
+    <h2>이 페이지 상품 고르는 방법</h2>
+    <p>매일 아침 쿠팡 골드박스·특가에서 ${esc(kw)} 상품 중 쿠팡 파트너스 링크가 확인된 것만 담습니다. 가격과 할인율은 수집 시점 기준이라 지금은 다를 수 있으니, 구매 전 쿠팡 상품 페이지에서 확인하세요.</p>
+    <h2>고르는 기준</h2>
+    <p>${esc(item.guide)}</p>
+    <p class="center"><a class="tg-btn" href="${TG_URL}" target="_blank" rel="noopener">✈️ @hotdeal_oide 구독하고 매일 받기</a></p>
+  </section>
+  <section>
+    <h2 class="sec">품목별 핫딜</h2>
+    <div class="item-links"><a class="chip" href="/index.html">🏠 전체 핫딜</a>${others}</div>
+  </section>
+</main>
+<footer class="foot">
+  <p>가격과 재고는 수시로 바뀝니다. 구매 전 쿠팡 상품 페이지에서 꼭 확인하세요.</p>
+  <p><a href="/index.html">홈</a> · <a href="/about.html">소개</a> · <a href="/privacy.html">개인정보처리방침</a> · © 2026 핫딜 오이데</p>
+  <p>${DISCLOSURE}</p>
+</footer>
+</body>
+</html>
+`;
+}
+
+const unesc = s => s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[e]));
+
+/** 사이트맵의 loc → lastmod(없으면 '') */
+export function sitemapLastmods(xml) {
+  const map = new Map();
+  for (const u of xml.match(/<url>[\s\S]*?<\/url>/g) ?? []) {
+    const loc = u.match(/<loc>\s*([^<]*?)\s*<\/loc>/)?.[1];
+    if (loc) map.set(unesc(loc), u.match(/<lastmod>\s*([^<]*?)\s*<\/lastmod>/)?.[1] ?? '');
+  }
+  return map;
+}
+
+/** 기존 사이트맵에서 /deal/ 이 아닌 항목은 그대로 두고, 품목 페이지 항목을 다시 만든다. */
+export function buildSitemap(existingXml, dealEntries) {
+  const lines = (existingXml.match(/<url>[\s\S]*?<\/url>/g) ?? [])
+    .filter(u => !/<loc>[^<]*\/deal\//.test(u))
+    .map(u => `  ${u.trim()}`);
+  const known = new Set();
+  for (const { loc, lastmod } of dealEntries) {
+    if (known.has(loc)) continue;
+    known.add(loc);
+    lines.push(`  <url><loc>${esc(loc)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}<changefreq>daily</changefreq><priority>0.7</priority></url>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${lines.join('\n')}
+</urlset>
+`;
+}
+
+const readJson = (file, fallback) => {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
+    if (e.code === 'ENOENT' && fallback !== undefined) return fallback;
+    throw e;
+  }
+};
+
+function writeIfChanged(file, content) {
+  let old = null;
+  try { old = fs.readFileSync(file, 'utf8'); } catch {}
+  if (old === content) return false;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, file);
+  return true;
+}
+
+const pendingFile = root => path.join(root, 'state', 'indexnow-pending.json');
+export const readPending = root => readJson(pendingFile(root), { urls: [] }).urls ?? [];
+const writePending = (root, urls) => writeIfChanged(pendingFile(root), JSON.stringify({ urls }, null, 2) + '\n');
+
+/** 디스크에 index.html이 있는 품목 페이지 slug 목록 */
+function slugsOnDisk(root) {
+  const dir = path.join(root, 'deal');
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter(e => e.isDirectory() && fs.existsSync(path.join(dir, e.name, 'index.html')))
+    .map(e => e.name).sort();
+}
+
+/**
+ * 전체 생성. 바뀐 페이지 URL 목록을 돌려주고, 그 URL을 IndexNow 대기 목록에 더한다. 페이지 파일은 지우지 않는다.
+ * lastmod: 기록(state) → 기존 사이트맵 항목 → 오늘 순으로 정한다(파일 mtime은 체크아웃 시각이라 쓰지 않음).
+ */
+export function buildAll({ root = ROOT, now = new Date() } = {}) {
+  const data = readJson(path.join(root, 'deals.json'));
+  const { items } = readJson(path.join(root, 'data', 'item-pages.json'));
+  const stateFile = path.join(root, 'state', 'item-history.json');
+  const state = readJson(stateFile, {});
+  state.items ??= {};
+  const sitemapFile = path.join(root, 'sitemap.xml');
+  const oldSitemap = fs.existsSync(sitemapFile) ? fs.readFileSync(sitemapFile, 'utf8') : '';
+  const oldLastmod = sitemapLastmods(oldSitemap);
+  const seenAt = data.updatedAt ?? now.toISOString();
+  const today = kstDate(now);
+  const changed = [];
+
+  for (const item of items) {
+    const rec = state.items[item.slug] ?? { deals: [] };
+    const matched = matchDeals(data.deals, item);
+    rec.deals = mergeHistory(rec.deals, matched, seenAt);
+    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt });
+    const file = path.join(root, 'deal', item.slug, 'index.html');
+    if (writeIfChanged(file, html)) {
+      rec.lastmod = today;
+      changed.push(pageUrl(item.slug));
+    } else if (!rec.lastmod) {
+      rec.lastmod = oldLastmod.get(pageUrl(item.slug)) || today;
+    }
+    state.items[item.slug] = rec;
+  }
+
+  // 설정에서 빠진 품목도 페이지가 디스크에 남아 있으면 사이트맵에 유지
+  const entries = items.map(i => ({ loc: pageUrl(i.slug), lastmod: state.items[i.slug].lastmod }));
+  for (const slug of slugsOnDisk(root)) {
+    if (items.some(i => i.slug === slug)) continue;
+    const loc = pageUrl(slug);
+    entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || '' });
+  }
+  writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries));
+  writeIfChanged(stateFile, JSON.stringify(state, null, 2) + '\n');
+  if (changed.length) writePending(root, [...new Set([...readPending(root), ...changed])]);
+  return { changed };
+}
+
+/** URL을 indexnow-submit.mjs에 넘긴다. 그 스크립트 출력은 stdout(JSON 결과)과 섞이지 않게 stderr로 보낸다. */
+export function submitIndexNow(urls, { dryRun = false } = {}) {
+  const args = [path.join(HERE, 'indexnow-submit.mjs'), ...(dryRun ? ['--dry-run'] : []), ...urls];
+  const r = spawnSync(process.execPath, args, { stdio: ['ignore', 2, 2] });
+  return r.status ?? 1;
+}
+
+/**
+ * 대기 중인 URL을 제출한다. dry-run이 아닌 제출이 성공했을 때만 제출한 URL을 대기 목록에서 뺀다.
+ * 실패하거나 dry-run이면 그대로 남아 다음 실행에서 다시 제출된다. 종료 코드를 돌려준다.
+ */
+export function flushIndexNow({ root = ROOT, dryRun = false, submit = submitIndexNow } = {}) {
+  const urls = readPending(root);
+  if (!urls.length) return 0;
+  const status = submit(urls, { dryRun });
+  if (status === 0 && !dryRun) {
+    const sent = new Set(urls);
+    writePending(root, readPending(root).filter(u => !sent.has(u)));
+  }
+  return status;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const argv = process.argv.slice(2);
+  const { changed } = buildAll();
+  console.log(JSON.stringify(changed, null, 2));
+  if (argv.includes('--indexnow')) {
+    const status = flushIndexNow({ dryRun: argv.includes('--dry-run') });
+    if (status !== 0) {
+      console.error(`IndexNow 제출 실패 (exit ${status}) — 대기 URL은 state/indexnow-pending.json에 남겨 다음 실행에서 다시 제출`);
+      process.exit(1);
+    }
+  }
+}
