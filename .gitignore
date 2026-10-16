@@ -4,4 +4,6 @@
 node_modules/
 .DS_Store
 *.log
-state/
+state/*
+!state/item-history.json
+!state/indexnow-pending.json

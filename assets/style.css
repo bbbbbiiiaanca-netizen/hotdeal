@@ -69,6 +69,28 @@ body.my-lock{overflow:hidden}
 .page{max-width:760px;margin:0 auto;padding:20px 16px;background:#fff;border-radius:14px}
 .page h1{font-size:24px}.page h2{font-size:17px;margin-top:22px}
 .tags{display:flex;gap:4px;flex-wrap:wrap}.tag{margin-right:0}
+.ended-banner{display:block;width:100%;box-sizing:border-box;margin:10px 0 8px;padding:14px 18px;border-radius:14px;background:#1f2937;color:#fff;font-size:21px;font-weight:800;line-height:1.3;text-align:center}
+.ended-deal{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.ended-deal>p{margin:6px 0}
+.btn-now-price{position:relative;overflow:hidden;isolation:isolate;display:flex;align-items:center;justify-content:center;width:100%;max-width:480px;min-height:52px;margin:12px auto 14px;padding:12px 20px;box-sizing:border-box;border-radius:14px;background:linear-gradient(135deg,#ff7a1a 0%,#ff4d1f 55%,#e8261c 100%);color:#fff;font-size:17px;font-weight:800;line-height:1.3;text-align:center;text-decoration:none;box-shadow:0 4px 14px rgba(255,77,31,.35);animation:now-price-glow 2.4s ease-in-out infinite}
+.btn-now-price::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:50%;z-index:-1;background:linear-gradient(100deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.38) 50%,rgba(255,255,255,0) 100%);transform:skewX(-20deg);animation:now-price-shine 3s ease-in-out infinite;pointer-events:none}
+.btn-now-price:hover{filter:brightness(1.05)}
+.btn-now-price:focus-visible{outline:3px solid #1A6FA0;outline-offset:2px}
+@keyframes now-price-shine{0%{left:-60%}60%,100%{left:120%}}
+@keyframes now-price-glow{0%,100%{box-shadow:0 4px 14px rgba(255,77,31,.35)}50%{box-shadow:0 4px 22px rgba(255,77,31,.6)}}
+@media(prefers-reduced-motion:reduce){.btn-now-price,.btn-now-price::after{animation:none}.btn-now-price::after{display:none}}
+/* 품목 페이지: 휴대폰에서는 카드 한 줄에 하나 → "쿠팡에서 지금 가격 보기" 버튼이 화면 폭 가득 */
+@media(max-width:600px){.item-grid{grid-template-columns:1fr}.item-grid .btn-now-price{max-width:none}}
+.item-links{display:flex;flex-wrap:wrap;gap:6px}a.chip{text-decoration:none;color:var(--ink)}a.chip:hover{border-color:var(--ink)}
+.related{margin-top:28px}
+.rel-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px 12px}
+@media(min-width:720px){.rel-grid{grid-template-columns:repeat(4,1fr);gap:24px 16px}}
+.rel-card{min-width:0}.rel-card a{display:flex;flex-direction:column;text-decoration:none;color:inherit;border-radius:10px}
+.rel-card a:focus-visible{outline:2px solid #1A6FA0;outline-offset:2px}
+.rel-thumb{aspect-ratio:1/1;background:#f4f5f7;border-radius:10px;overflow:hidden}.rel-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.rel-card h3{font-size:13px;font-weight:400;color:#333;line-height:1.4;margin:8px 0 2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px}
+.rel-price{display:flex;align-items:baseline;gap:5px}.rel-price b{font-size:16px;font-weight:700;color:var(--ink)}.rel-pct{font-size:15px;font-weight:700;color:var(--red)}
+.rel-was{color:#9ca3af;font-size:12px}
 .logo-h1{margin:0;font-size:inherit;font-weight:inherit;line-height:0;display:flex;flex:0 1 auto;min-width:0}
 .sec{font-size:17px;font-weight:700;margin:0 0 12px}
 .top-box{background:#fff;border-bottom:8px solid #f4f5f7;padding:4px 0 20px;margin:0 -16px 24px;padding-left:16px;padding-right:16px}

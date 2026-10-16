@@ -16,6 +16,9 @@ assets/og.png     SNS 공유 이미지 1200x630 (brand/og.py로 생성)
 scripts/refresh-deals.mjs  쿠팡 API로 deals.json을 갱신하는 스크립트(스텁)
 scripts/make-post.mjs      텔레그램 포스트 글 생성
 scripts/post-telegram.mjs  텔레그램 채널에 전송 (중복 방지)
+scripts/build-item-pages.mjs  품목별 페이지(deal/<품목>/) + sitemap.xml 생성
+data/item-pages.json       품목 페이지 설정 (slug·keyword·subId·match·category·guide)
+deal/<품목>/index.html     생성된 품목 페이지 (직접 고치지 말 것)
 tests/            node:test 테스트
 screens/          스크린샷
 ```
@@ -87,6 +90,22 @@ TELEGRAM_BOT_TOKEN=... node scripts/post-telegram.mjs --slot 1
 - `uncertain`이 남아 있으면 다음 실행은 보내지 않고 안내를 출력합니다. 채널에서 직접 확인한 뒤, 올라갔으면 상태 파일에서 그 조각의 `status`를 `"sent"`로 바꾸고, 안 올라갔으면 `--force-uncertain`을 붙여 다시 실행하세요.
 - 토큰은 출력·로그에 남기지 않습니다.
 - 테스트: `node --test tests/`
+
+## 3-2. 품목별 핫딜 페이지 (deal/<품목>/)
+`deals.json`을 갱신한 **바로 뒤에** 실행합니다.
+```bash
+node scripts/build-item-pages.mjs --indexnow     # 페이지·사이트맵 생성 + 제출 대기 URL(바뀐 페이지)을 IndexNow 제출
+node scripts/build-item-pages.mjs                # 생성만 (제출 안 함)
+node scripts/build-item-pages.mjs --indexnow --dry-run   # 제출 직전까지만 확인
+```
+- `data/item-pages.json`의 품목마다 `deal/<slug>/index.html`을 만듭니다(주소는 `/deal/<퍼센트 인코딩된 slug>/`). 페이지는 지우지 않습니다. 설정에서 품목을 빼도 파일과 사이트맵 항목은 남습니다.
+- 딜 고르기: 제목이 `match` 규칙에 맞고(대소문자 무시. 배열은 하나라도, `{"all": [...]}`는 모두, `{"any": [...]}`는 하나라도, 중첩 가능 — 예: `{"all": ["톤업", {"any": ["선", "spf"]}]}`) 링크가 `https://link.coupang.com/`으로 시작하는 딜만 씁니다. 예시·가짜 상품은 절대 넣지 않습니다.
+- 화면: 오늘 딜이 있으면 그 딜 / 오늘은 없고 예전 기록이 있으면 "오늘은 딜 없음" + 최근 딜(확인 날짜, 가격이 바뀌었을 수 있다는 안내) / 기록이 아예 없으면 "준비 중" 안내.
+- subId: 단축 링크(`link.coupang.com/a/...`)는 subId를 붙일 수 없어 그대로 두고 버튼에 `data-subid-missing="1"`을 표시합니다. `lptag`·`subId` 파라미터가 있는 긴 파트너스 링크만 품목의 `subId`를 넣습니다.
+- 기록: `state/item-history.json`에 품목별 최근 딜 10개(url 기준 중복 제거)와 페이지 마지막 변경일을 남깁니다. 이 파일은 깃에 커밋합니다(새로 체크아웃해도 기록·lastmod 유지). 기록이 없으면 `lastmod`는 기존 사이트맵 항목 값을 이어 씁니다.
+- 내용이 바뀐 파일만 다시 쓰고, 바뀐 페이지 URL 목록을 JSON으로 출력합니다. `sitemap.xml`은 기존 3개 항목을 그대로 두고 품목 페이지(설정에서 빠졌어도 `deal/`에 파일이 남아 있는 페이지 포함)를 붙이며, `lastmod`는 그 페이지 내용이 마지막으로 바뀐 날(KST)입니다.
+- 페이지에 갱신 시각이 들어가서 `deals.json`의 `updatedAt`이 바뀌면 모든 품목 페이지가 바뀐 것으로 잡힙니다(하루 1번 갱신이면 하루 1번 제출).
+- 바뀐 URL은 `state/indexnow-pending.json`(커밋 대상)에 쌓입니다. `--indexnow`는 이 대기 URL을 `scripts/indexnow-submit.mjs <URL...>`로 넘기고(그 스크립트는 URL을 주면 사이트맵 대신 이 사이트 origin의 URL만 제출), `--dry-run`이 아닌 제출이 성공했을 때만 대기 목록을 비웁니다. 실패하면 다음 실행에서 다시 제출합니다. 검색엔진이 새 페이지를 바로 가져갈 수 있으니, 가능하면 커밋·배포가 끝난 뒤에 제출하는 순서가 안전합니다.
 
 ## 4. 대가성 문구 (법적 의무)
 공정위 「추천·보증 등에 관한 표시·광고 심사지침」(2024.12.1 개정 시행)에 따라 경제적 이해관계를 **게시물의 제목이나 첫 부분**에, 본문과 구분되게(글자 크기·색을 다르게) 표시해야 합니다. "받을 수 있습니다" 같은 조건부 표현은 안 됩니다.
