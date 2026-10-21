@@ -114,3 +114,11 @@ body.my-lock{overflow:hidden}
 .i-close{width:100%;margin-top:4px}
 .foot .req{margin:10px 0 0;font-size:11px}.foot .req a{color:#9ca3af}
 @media(max-width:380px){.logo img{height:36px}}
+.xpromo{position:relative;background:#fff;border:1px solid var(--line);border-radius:14px;margin:0 0 24px}
+.xpromo-ad{position:absolute;top:8px;right:12px;font-size:11px;line-height:1;color:#9ca3af}
+.xpromo-link{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:18px 16px 14px;color:var(--ink);text-decoration:none;border-radius:14px}
+.xpromo-text{flex:1 1 180px;min-width:0;display:flex;flex-direction:column;gap:2px;word-break:keep-all}
+.xpromo-title{font-size:15px;font-weight:700}
+.xpromo-desc{font-size:13px;color:var(--muted)}
+.xpromo-btn{flex:none;display:inline-flex;align-items:center;min-height:40px;padding:0 14px;border-radius:10px;background:#FF5A1F;color:#fff;font-size:14px;font-weight:700;white-space:nowrap}
+.xpromo-link:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
