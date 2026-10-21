@@ -671,3 +671,34 @@ test('비슷한 핫딜: 같은 카테고리 딜이 없으면 섹션을 생략하
     assert.doesNotMatch(html, /비슷한 핫딜|고르는 방법|고르는 기준|품목별 핫딜|class="chip"/);
   }
 });
+
+test('설명 블록: 비교표·자료 요약(출처 링크)·공식 영상은 데이터가 있을 때만, 출처 없는 요약은 그리지 않음', async () => {
+  const { renderGuide } = await import('../scripts/build-item-pages.mjs');
+  assert.equal(renderGuide({ keyword: 'x' }), '');
+  assert.equal(renderGuide({ keyword: 'x', review: { points: ['a'], sources: [] } }), '');
+  const html = renderGuide({ keyword: 'x',
+    compare: { columns: ['기준', 'A'], rows: [['먼지', '<b>']] },
+    review: { points: ['요약'], sources: [{ title: 't', url: 'https://example.org/a' }, { title: 'bad', url: 'javascript:alert(1)' }] },
+    youtube: { id: 'abcdefghijk', title: 'v', channel: 'c' } });
+  assert.match(html, /<table class="cmp">/);
+  assert.match(html, /&lt;b&gt;/);
+  assert.match(html, /href="https:\/\/example.org\/a"/);
+  assert.doesNotMatch(html, /javascript:/);
+  assert.match(html, /youtube-nocookie\.com\/embed\/abcdefghijk/);
+});
+
+test('설정의 새 품목 3개: 비교표+출처 있는 요약, 금지 문구 없음, 페이지 간 문장 중복 없음', () => {
+  const { items } = JSON.parse(readFileSync(new URL('../data/item-pages.json', import.meta.url), 'utf8'));
+  const picked = items.filter(i => ['고양이모래', '캡슐세제', '부스터카시트'].includes(i.slug));
+  assert.equal(picked.length, 3);
+  const seen = new Set();
+  for (const i of picked) {
+    assert.ok(i.compare?.rows?.length >= 3, i.slug);
+    assert.ok(i.review?.points?.length >= 3 && i.review.sources.every(s => s.url.startsWith('https://')), i.slug);
+    const text = JSON.stringify(i);
+    assert.doesNotMatch(text, /최저가|가장 낮은 가격|coupangcdn|thumbnail/);
+    for (const s of [...i.review.points, ...i.compare.rows.flat(), i.compare.heading, i.review.heading]) {
+      assert.ok(!seen.has(s), `중복 문장: ${s}`); seen.add(s);
+    }
+  }
+});

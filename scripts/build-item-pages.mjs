@@ -206,6 +206,48 @@ function endedBody(item, history) {
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
  * 제목·h1·설명은 '{품목} 가격 비교 (YYYY-MM-DD 기준)'(날짜 = 데이터 갱신일, KST). 가격 기록이 쌓이기 전까지 '최저가'·'가장 낮은 가격' 같은 표현은 쓰지 않는다.
  */
+
+/**
+ * 품목 설명 블록(선택). data/item-pages.json의 item에 있을 때만 그린다.
+ *  - review: { heading, points: [문장...], sources: [{ title, publisher, date, url }] }
+ *    우리 말로 요약한 문장만 넣고, 실제로 확인한 출처 링크를 붙인다. 출처가 없으면 그리지 않는다.
+ *  - compare: { heading, note, columns: [...], rows: [[...], ...] }  기준별 비교표(검증된 사실·구매 기준만)
+ *  - youtube: { id, title, channel }  공식 채널 영상만. youtube-nocookie 임베드
+ * 쿠팡 상세페이지 이미지는 쓰지 않는다(이 블록은 글·표·공식 영상만).
+ */
+const safeHttp = u => typeof u === 'string' && /^https:\/\/[^\s"'<>]+$/.test(u);
+export function renderGuide(item) {
+  const out = [];
+  const c = item.compare;
+  if (c && Array.isArray(c.columns) && c.columns.length && Array.isArray(c.rows) && c.rows.length) {
+    out.push(`<section class="guide-sec">
+    <h2 class="sec">${esc(c.heading ?? `${item.keyword} 고를 때 비교 기준`)}</h2>
+    <div class="cmp-wrap"><table class="cmp">
+      <thead><tr>${c.columns.map(h => `<th scope="col">${esc(h)}</th>`).join('')}</tr></thead>
+      <tbody>${c.rows.map(r => `<tr>${r.map((v, i) => i === 0 ? `<th scope="row">${esc(v)}</th>` : `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>${c.note ? `\n    <p class="muted cmp-note">${esc(c.note)}</p>` : ''}
+  </section>`);
+  }
+  const r = item.review;
+  const srcs = (r?.sources ?? []).filter(x => x && safeHttp(x.url));
+  if (r && Array.isArray(r.points) && r.points.length && srcs.length) {
+    out.push(`<section class="guide-sec">
+    <h2 class="sec">${esc(r.heading ?? `${item.keyword} 자료 요약`)}</h2>
+    <ul class="rv-list">${r.points.map(t => `<li>${esc(t)}</li>`).join('')}</ul>
+    <p class="muted rv-src-h">출처 (우리 말로 요약했고, 원문 표현을 그대로 옮기지 않았어요)</p>
+    <ol class="rv-src">${srcs.map(x => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a>${x.publisher ? ` · ${esc(x.publisher)}` : ''}${x.date ? ` · ${esc(x.date)}` : ''}</li>`).join('')}</ol>
+  </section>`);
+  }
+  const y = item.youtube;
+  if (y && /^[\w-]{11}$/.test(y.id ?? '')) {
+    out.push(`<section class="guide-sec">
+    <h2 class="sec">${esc(y.title ?? '공식 영상')}</h2>
+    <div class="yt"><iframe src="https://www.youtube-nocookie.com/embed/${y.id}" title="${esc(y.title ?? '')}" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>${y.channel ? `\n    <p class="muted">출처: ${esc(y.channel)} 공식 유튜브</p>` : ''}
+  </section>`);
+  }
+  return out.join('\n');
+}
+
 export function renderPage({ item, items, today, history, updatedAt, minSalePrice, related = [] }) {
   const kw = item.keyword;
   const title = `${kw} 가격 비교${updatedAt ? ` (${kstDate(updatedAt)} 기준)` : ''}`;
@@ -227,6 +269,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
     <p class="muted">준비 중: 아직 이 품목의 확인된 쿠팡 파트너스 상품이 없어요. 매일 아침 갱신 때 들어오면 여기에 표시됩니다.</p>`;
   }
 
+  const guideHtml = renderGuide(item);
   const relatedHtml = related.length ? `
   <section class="related">
     <h2 class="sec">비슷한 핫딜</h2>
@@ -268,7 +311,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
   <section>
     ${body}
   </section>
-${relatedHtml}
+${guideHtml ? `  ${guideHtml}\n` : ''}${relatedHtml}
 </main>
 <footer class="foot">
   <p class="disclosure" role="note"><strong>광고</strong> ${DISCLOSURE}</p>
