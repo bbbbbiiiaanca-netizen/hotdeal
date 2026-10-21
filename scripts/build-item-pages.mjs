@@ -242,18 +242,15 @@ export function isRecordLow(daily, date, price, todayMin = mergeDaily(daily, dat
 /** 기록 기간 문구: 'YYYY-MM-DD ~ YYYY-MM-DD, N일' */
 const period = st => `${st.start} ~ ${st.end}, ${st.days}일`;
 
-/** 기록 항목의 상품 링크: url이 있으면 그 링크(subId 적용), productId만 있으면 쿠팡 상품 페이지, 둘 다 없으면 null */
-const entryHref = (e, subId) => e.url ? withSubId(e.url, subId) : e.productId ? `https://www.coupang.com/vp/products/${encodeURIComponent(e.productId)}` : null;
-
 /** 'YYYY-MM-DD' → 1970-01-01부터의 일수(그래프 x축용) */
 const dayNum = ymd => Math.round(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86400000);
 
 /**
  * 가격 그래프 섹션. x는 실제 날짜 간격, 선은 하루 차이로 이어진 기록끼리만 잇는다(빈 날은 끊고 보간·0 채움 없음).
  * 점은 기록마다 하나(툴팁: 날짜·가격·상품명). 기록 1일이면 점 하나와 안내, 0일이면 안내 문구만.
- * 그래프 아래에 기록 기간과 '기록 상세'(날짜·가격·상품명 링크, 최신순)를 붙인다. subId는 기록 링크에 넣는다.
+ * 그래프 아래에 기록 기간과 '기록 상세'(날짜·가격·상품명, 최신순)를 붙인다. 상품명은 텍스트만 쓰고 링크는 걸지 않는다(url·productId는 기록에만 남김).
  */
-export function priceGraph(daily, { subId } = {}) {
+export function priceGraph(daily) {
   const d = mergeDaily(daily);
   const st = priceStats(d);
   if (!st) {
@@ -283,11 +280,7 @@ export function priceGraph(daily, { subId } = {}) {
     <p class="pg-note">기록 기간: ${period(st)} · 추이를 판단하기엔 기록이 부족해요</p>`
     : `<dl class="pg-stats"><div><dt>최고</dt><dd>${won(st.max)}</dd></div><div><dt>평균</dt><dd>${won(st.avg)}</dd></div><div class="pg-lo"><dt>최저</dt><dd>${won(st.min)}</dd></div></dl>
     <p class="pg-note">기록 기간: ${period(st)} (날마다 확인한 가장 낮은 가격)</p>`;
-  const name = e => {
-    if (!e.title) return '<span class="muted">상품명 기록 없음</span>';
-    const href = entryHref(e, subId);
-    return href ? `<a href="${esc(href)}" target="_blank" rel="sponsored nofollow noopener">${esc(e.title)}</a>` : esc(e.title);
-  };
+  const name = e => e.title ? esc(e.title) : '<span class="muted">상품명 기록 없음</span>';
   const detail = `
     <div class="pg-detail"><h3 class="pg-h3">기록 상세</h3><p class="pg-note">기록 당시 가격이며 지금 가격과 다를 수 있어요.</p>
     <ul class="pg-list">${[...d].reverse().map(e => `<li><span class="pg-date">${e.date}</span> <b>${won(e.minPrice)}</b> <span class="pg-name">${name(e)}</span></li>`).join('')}</ul></div>`;
@@ -412,7 +405,7 @@ ${PAGE_CSS}
   <section>
     ${body}
   </section>
-  ${priceGraph(daily, { subId: item.subId })}
+  ${priceGraph(daily)}
 ${relatedHtml}
 </main>
 <footer class="foot">

@@ -516,7 +516,7 @@ test('가격 그래프: 기록 1일이면 점 하나 + 부족 안내, 0일이면
   assert.equal(priceGraph([]), priceGraph(DL(['2026-10-15', 0])));
 });
 
-test('가격 그래프: 점마다 날짜·가격·상품명 툴팁, 그래프 아래 기록 상세(최신순, 링크, 이스케이프)', () => {
+test('가격 그래프: 점마다 날짜·가격·상품명 툴팁, 그래프 아래 기록 상세(최신순, 링크 없는 텍스트, 이스케이프)', () => {
   const daily = [
     { date: '2026-10-13', minPrice: 21000, title: '팬히터 <b>"A"</b> & 1', url: 'https://link.coupang.com/re/AFFSDP?lptag=AF1' },
     { date: '2026-10-14', minPrice: 19000, title: '팬히터 B', productId: '222' },
@@ -532,11 +532,45 @@ test('가격 그래프: 점마다 날짜·가격·상품명 툴팁, 그래프 �
   const rows = [...detail.matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => m[1]);
   assert.equal(rows.length, 3);
   assert.equal(rows[0], '<span class="pg-date">2026-10-15</span> <b>20,000원</b> <span class="pg-name"><span class="muted">상품명 기록 없음</span></span>');
-  assert.equal(rows[1], '<span class="pg-date">2026-10-14</span> <b>19,000원</b> <span class="pg-name"><a href="https://www.coupang.com/vp/products/222" target="_blank" rel="sponsored nofollow noopener">팬히터 B</a></span>');
-  // url 링크에는 품목 subId, 상품명은 이스케이프
-  assert.equal(rows[2], '<span class="pg-date">2026-10-13</span> <b>21,000원</b> <span class="pg-name"><a href="https://link.coupang.com/re/AFFSDP?lptag=AF1&amp;subId=deal-fanheater" target="_blank" rel="sponsored nofollow noopener">팬히터 &lt;b&gt;&quot;A&quot;&lt;/b&gt; &amp; 1</a></span>');
+  assert.equal(rows[1], '<span class="pg-date">2026-10-14</span> <b>19,000원</b> <span class="pg-name">팬히터 B</span>');
+  // 상품명은 링크 없이 이스케이프된 텍스트만
+  assert.equal(rows[2], '<span class="pg-date">2026-10-13</span> <b>21,000원</b> <span class="pg-name">팬히터 &lt;b&gt;&quot;A&quot;&lt;/b&gt; &amp; 1</span>');
   assert.ok(!html.includes('<b>"A"</b>'));
   assert.ok(!html.includes('최저가'));
+});
+
+test('기록 상세: <a> 태그 없음, 기록 url·productId는 저장 데이터에 남고 페이지 기록 상세에는 안 나옴', () => {
+  const URL_A = 'https://link.coupang.com/re/AFFSDP?lptag=AF1&pageKey=777';
+  let daily = mergeDaily([], '2026-10-13', 21000, { title: '팬히터 A', url: URL_A });
+  daily = mergeDaily(daily, '2026-10-14', 19000, { title: '팬히터 B', url: 'https://www.coupang.com/vp/products/222?itemId=9' });
+  const before = structuredClone(daily);
+  const html = renderPage({ ...R, today: [], history: [H('o', 1, '2026-10-10T07:00:00+09:00')], daily });
+  const sec = html.slice(html.indexOf('<section class="pg"'), html.indexOf('</section>', html.indexOf('<section class="pg"')));
+  const detail = sec.slice(sec.indexOf('<div class="pg-detail">'));
+  // (a) 기록 상세 영역에 <a 태그가 하나도 없음
+  assert.ok(detail.includes('팬히터 A') && detail.includes('팬히터 B'));
+  assert.doesNotMatch(detail, /<a[\s>]/i);
+  // (b) 렌더 후에도 저장 데이터에는 url·productId가 그대로
+  assert.deepEqual(daily, before);
+  assert.equal(daily[0].url, URL_A);
+  assert.equal(daily[1].productId, '222');
+  // (c) 기록 url(이스케이프 형태 포함)·상품 페이지 링크가 기록 상세에 나타나지 않음
+  for (const s of [URL_A, URL_A.replace(/&/g, '&amp;'), 'link.coupang.com', 'coupang.com/vp/products']) assert.ok(!detail.includes(s), s);
+});
+
+test('buildAll: 기록 url·productId는 item-history.json에 저장되고, 페이지 기록 상세에는 링크로 나오지 않음', () => {
+  const root = site([deal('fh1', '팬히터 A', { salePrice: 20000 })], '2026-10-15T07:33:00+09:00');
+  buildAll({ root, now: D1 });
+  const rec = readState(root).items['팬히터'].daily;
+  assert.equal(rec.length, 1);
+  assert.equal(rec[0].url, 'https://link.coupang.com/a/fh1');
+  const html = page(root, '팬히터');
+  const detail = html.slice(html.indexOf('<div class="pg-detail">'), html.indexOf('</section>', html.indexOf('<div class="pg-detail">')));
+  assert.ok(detail.includes('<span class="pg-name">팬히터 A</span>'));
+  assert.doesNotMatch(detail, /<a[\s>]/i);
+  assert.ok(!detail.includes('https://link.coupang.com/a/fh1'));
+  assert.ok(html.includes('https://link.coupang.com/a/fh1')); // 쿠팡에서 지금 가격 보기 버튼은 그대로
+  rmSync(root, { recursive: true });
 });
 
 test('buildAll: 일별 기록 누적·같은 날 재실행 min(상품명·url 함께)·1회 이관, 기간 배너는 이전 2일 이상부터', () => {
