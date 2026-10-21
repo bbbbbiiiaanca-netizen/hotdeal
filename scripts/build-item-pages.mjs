@@ -207,9 +207,12 @@ export function priceStats(daily) {
 /**
  * 역대 최저가 판정: date 이전의 서로 다른 날짜 기록이 2일 이상이고, price가 그 모든 일별 최저가보다 엄격히 낮을 때만
  * { prev(이전 기록 최저), price, pct(내림 %) }, 아니면 null. 같은 값(동률)은 최저가가 아니다.
+ * 또 price가 오늘 일별 최저가(todayMin)와 같아야 한다: 오늘 앞서 더 싼 값이 기록됐으면 지금 가격은 최저가가 아니다.
+ * todayMin을 생략하면 daily에 price를 합친 오늘 날짜의 minPrice를 쓴다.
  */
-export function isRecordLow(daily, date, price) {
+export function isRecordLow(daily, date, price, todayMin = mergeDaily(daily, date, price).find(e => e.date === date)?.minPrice) {
   if (!validPrice(price) || !DATE_RE.test(date ?? '')) return null;
+  if (price !== todayMin) return null;
   const before = mergeDaily(daily).filter(e => e.date < date);
   if (before.length < 2) return null;
   const prev = Math.min(...before.map(e => e.minPrice));
@@ -233,7 +236,7 @@ export function priceGraph(daily) {
     <p class="pg-empty">아직 가격 기록이 없어요</p>
   </section>`;
   }
-  const W = 600, H = 180, PX = 16, PY = 18;
+  const W = 600, H = d.length === 1 ? 60 : 180, PX = 16, PY = 18; // 기록 1일은 점 하나뿐이라 높이를 줄인다
   const span = Math.max(1, dayNum(st.end) - dayNum(st.start));
   const x = e => (d.length === 1 ? W / 2 : PX + ((dayNum(e.date) - dayNum(st.start)) / span) * (W - 2 * PX));
   const y = e => (st.max === st.min ? H / 2 : PY + ((st.max - e.minPrice) / (st.max - st.min)) * (H - 2 * PY));
@@ -308,7 +311,8 @@ export function renderPage({ item, items, today, history, updatedAt, daily = [],
   const kw = item.keyword;
   const day = date ?? (updatedAt ? kstDate(updatedAt) : null);
   const nowPrice = today.length ? Math.min(...today.map(d => d.salePrice)) : null;
-  const low = day && nowPrice !== null ? isRecordLow(daily, day, nowPrice) : null;
+  const todayMin = day ? mergeDaily(daily).find(e => e.date === day)?.minPrice : undefined;
+  const low = day && nowPrice !== null ? isRecordLow(daily, day, nowPrice, todayMin) : null;
   const title = low ? `${kw} 최저가` : `${kw} 가격 비교`;
   const lowBadge = low
     ? `\n    <p class="pg-low">🔥 지금까지 본 것 중 최저가 · ${won(low.prev)} → ${won(low.price)} (▼${low.pct >= 1 ? `${low.pct}%` : '1% 미만'})</p>`

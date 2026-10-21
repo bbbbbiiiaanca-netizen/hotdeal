@@ -423,6 +423,16 @@ test('isRecordLow: 오늘 이전 서로 다른 날짜 2일 이상 + 이전 모�
   assert.equal(isRecordLow(two, '2026-10-15', 0), null);
 });
 
+test('isRecordLow: 오늘 앞서 더 싼 값이 기록됐으면 지금 가격은 최저가 아님(오늘 일별 최저와 같을 때만)', () => {
+  const daily = DL(['2026-10-13', 100], ['2026-10-14', 100], ['2026-10-15', 50]);
+  assert.equal(isRecordLow(daily, '2026-10-15', 80, 50), null);
+  assert.equal(isRecordLow(daily, '2026-10-15', 80), null); // todayMin 생략 시 daily의 오늘 최저(50) 사용
+  assert.deepEqual(isRecordLow(daily, '2026-10-15', 50, 50), { prev: 100, price: 50, pct: 50 });
+  const page = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 80 })], history: [], daily });
+  assert.equal(titleOf(page), '팬히터 가격 비교');
+  assert.doesNotMatch(page, /class="pg-low"/);
+});
+
 test('제목 분기: 기본 "{품목} 가격 비교", 최저가 판정 충족 시만 "{품목} 최저가" + 배지', () => {
   const today = [deal('n', '팬히터 n', { salePrice: 15200 }), deal('m', '팬히터 m', { salePrice: 30000 })];
   const prior = DL(['2026-10-13', 20000], ['2026-10-14', 19000]);
@@ -466,7 +476,7 @@ test('가격 그래프: 2일 이상이면 SVG 선·점 + 최고·평균·최저 
 test('가격 그래프: 기록 1일이면 점 하나 + 부족 안내, 0일이면 기록 없음 안내(SVG 없음)', () => {
   const page1 = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 55140 })], history: [], daily: DL(['2026-10-15', 55140]) });
   const one = page1.slice(page1.indexOf('<section class="pg"'), page1.indexOf('</section>', page1.indexOf('<section class="pg"')));
-  assert.match(one, /<svg class="pg-svg"/);
+  assert.match(one, /<svg class="pg-svg" viewBox="0 0 600 60"/);
   assert.equal((one.match(/<circle /g) ?? []).length, 1); // 헤더 텔레그램 아이콘의 circle은 제외(그래프 섹션만)
   assert.doesNotMatch(one, /class="pg-line"/);
   assert.ok(one.includes('기록 1일 · 추이를 판단하기엔 기록이 부족해요'));
