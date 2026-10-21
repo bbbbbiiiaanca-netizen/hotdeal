@@ -204,12 +204,11 @@ function endedBody(item, history) {
  * 헤더·푸터는 index.html과 같은 마크업(경로만 /로 시작). 쿠팡 파트너스 고지문은 푸터에 한 번만.
  * MY 버튼은 assets/my.js만 싣는다(설정은 이 브라우저에 저장돼 메인 추천에 반영). app.js는 #q·#sort와
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
- * 제목·h1·설명은 '{품목} 가격 비교'. 오늘 딜이 기록상 가장 낮은 가격 이하일 때만 ' (YYYY-MM-DD 기준, 우리 기록 중 가장 낮은 가격)'을 붙인다. '최저가' 단정 표현은 쓰지 않는다.
+ * 제목·h1·설명은 '{품목} 가격 비교 (YYYY-MM-DD 기준)'(날짜 = 데이터 갱신일, KST). 가격 기록이 쌓이기 전까지 '최저가'·'가장 낮은 가격' 같은 표현은 쓰지 않는다.
  */
 export function renderPage({ item, items, today, history, updatedAt, minSalePrice, related = [] }) {
   const kw = item.keyword;
-  const low = lowestNow({ today, history, minSalePrice, updatedAt });
-  const title = `${kw} 가격 비교${low ? ` (${low.date} 기준, 우리 기록 중 가장 낮은 가격)` : ''}`;
+  const title = `${kw} 가격 비교${updatedAt ? ` (${kstDate(updatedAt)} 기준)` : ''}`;
   const desc = `${title} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`;
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
