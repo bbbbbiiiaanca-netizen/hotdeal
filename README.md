@@ -13,7 +13,9 @@ deals.json        상품 데이터
 assets/style.css  디자인 (모바일 우선)
 assets/app.js     목록 렌더링, 필터, 정렬, 검색
 assets/og.png     SNS 공유 이미지 1200x630 (brand/og.py로 생성)
-scripts/refresh-deals.mjs  쿠팡 API로 deals.json을 갱신하는 스크립트(스텁)
+scripts/refresh-deals.mjs  (사용 중지) 예전 쿠팡 API 자동 갱신 스크립트
+scripts/import-manual-deals.mjs  data/manual-deals.csv → deals.json 검사·변환
+data/manual-deals.csv      운영자가 직접 고른 상품 입력 파일 (예시: data/manual-deals.example.csv)
 scripts/make-post.mjs      텔레그램 포스트 글 생성
 scripts/post-telegram.mjs  텔레그램 채널에 전송 (중복 방지)
 scripts/build-item-pages.mjs  품목별 페이지(deal/<품목>/) + sitemap.xml 생성
@@ -52,9 +54,14 @@ screens/          스크린샷
 1. https://partners.coupang.com 에서 가입하고 활동 채널(이 사이트 URL)을 등록합니다.
 2. **최종 승인**: 파트너스 링크로 생긴 누적 구매금액이 15만 원을 넘으면 채널 심사가 진행되고, 최종 승인이 나야 수수료를 정산받을 수 있습니다. (2026년 기준으로 여러 가이드가 같은 내용을 안내함. 공식 도움말에서 다시 확인하세요.)
 3. 링크는 승인 전에도 파트너스 웹의 "링크 생성"으로 직접 만들 수 있습니다. 처음에는 손으로 링크를 만들어 `deals.json`에 넣으면 됩니다.
+   - 지금은 이 방법만 씁니다. 직접 만든 링크를 `data/manual-deals.csv`에 적고 스크립트로 `deals.json`을 만드는 절차: [docs/manual-deals.md](docs/manual-deals.md)
 4. Open API 키(Access Key / Secret Key)는 파트너스 대시보드의 Open API 메뉴에서 발급합니다. 보통 최종 승인 뒤에 발급됩니다.
 
-## 3. API로 deals.json 자동 갱신
+## 3. API로 deals.json 자동 갱신 (사용 중지)
+> **사용 중지 (2026-10-21 운영자 결정)**: 이 박스의 IP가 쿠팡에서 차단되어, goldbox.today 등 외부를 거쳐 갱신하던 방식도 중단했습니다. `scripts/refresh-deals.mjs`는 실행하면 안내만 출력하고 종료(exit 1)합니다.
+> 이제는 운영자가 파트너스에서 직접 고른 상품을 CSV에 적어 `deals.json`을 만듭니다: [docs/manual-deals.md](docs/manual-deals.md)
+> 아래 내용은 기록용으로 남겨 둡니다.
+
 ```bash
 COUPANG_ACCESS_KEY=xxx COUPANG_SECRET_KEY=yyy COUPANG_SUB_ID=mychannel \
   node scripts/refresh-deals.mjs
