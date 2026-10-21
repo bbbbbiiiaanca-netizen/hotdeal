@@ -6,7 +6,7 @@
  * 사용: node scripts/build-item-pages.mjs [--indexnow] [--dry-run]
  *   --indexnow  제출 대기 URL(바뀐 페이지 누적)을 scripts/indexnow-submit.mjs로 제출, 성공하면 대기 목록을 비운다
  *   --dry-run   --indexnow와 함께 쓰면 제출 직전까지만 확인(indexnow-submit.mjs --dry-run). 대기 목록은 그대로 둔다
- * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 페이지 마지막 변경일)
+ * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 일별 최저가 기록 daily(기간 제한 없음), 페이지 마지막 변경일)
  *                  state/indexnow-pending.json (아직 제출하지 못한 URL)
  */
 import fs from 'node:fs';
@@ -163,25 +163,122 @@ function relatedCard({ deal: d, page }) {
     </a></article>`;
 }
 
-/** 기록 최저가: 이전 누적 최저가(prevMin)와 지금 기록(history) 중 가장 낮은 salePrice. 기록이 없으면 null */
-export function recordMin(history, prevMin) {
-  const prices = (history ?? []).map(d => d.salePrice).filter(n => n > 0);
-  if (prevMin > 0) prices.push(prevMin);
-  return prices.length ? Math.min(...prices) : null;
+// ── 일별 최저가 기록 (state.items[slug].daily = [{ date: 'YYYY-MM-DD'(KST), minPrice }]) ──
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validPrice = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
+
+/**
+ * 일별 기록에 (date, price)를 합친다. 같은 날짜는 더 낮은 값으로만 갱신, 날짜 중복 없음, 날짜순 정렬.
+ * 0·음수·숫자 아님·날짜 형식 틀림은 버린다(기존 기록의 잘못된 항목도 함께 정리). 입력은 바꾸지 않는다.
+ */
+export function mergeDaily(daily, date, price) {
+  const byDate = new Map();
+  const put = (d, p) => {
+    if (!DATE_RE.test(d ?? '') || !validPrice(p)) return;
+    if (!byDate.has(d) || p < byDate.get(d)) byDate.set(d, p);
+  };
+  for (const e of daily ?? []) put(e?.date, e?.minPrice);
+  put(date, price);
+  return [...byDate].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([date, minPrice]) => ({ date, minPrice }));
+}
+
+/** 1회 이관: 기존 딜 기록 중 seenAt(유효한 시각)과 salePrice(양수)가 둘 다 있는 것만 그 KST 날짜의 기록으로 만든다. 추정하지 않는다. */
+export function dailyFromDeals(deals) {
+  let daily = [];
+  for (const d of deals ?? []) {
+    if (!d?.seenAt || Number.isNaN(new Date(d.seenAt).getTime())) continue;
+    daily = mergeDaily(daily, kstDate(d.seenAt), d.salePrice);
+  }
+  return daily;
+}
+
+/** 일별 최저가 통계. 기록이 없으면 null. avg는 일별 최저가의 평균(반올림). */
+export function priceStats(daily) {
+  const d = mergeDaily(daily);
+  if (!d.length) return null;
+  const prices = d.map(e => e.minPrice);
+  return {
+    days: d.length, start: d[0].date, end: d[d.length - 1].date,
+    min: Math.min(...prices), max: Math.max(...prices),
+    avg: Math.round(prices.reduce((a, b) => a + b, 0) / prices.length),
+  };
 }
 
 /**
- * 오늘 딜 중 가장 싼 것이 기록 최저가 이하면 { price, date }(date = 그 딜의 seenAt, KST 날짜), 아니면 null.
- * 오늘 딜은 이미 기록에 합쳐져 있으므로 "이하" 비교가 곧 "기록상 가장 싸다"가 된다.
+ * 역대 최저가 판정: date 이전의 서로 다른 날짜 기록이 2일 이상이고, price가 그 모든 일별 최저가보다 엄격히 낮을 때만
+ * { prev(이전 기록 최저), price, pct(내림 %) }, 아니면 null. 같은 값(동률)은 최저가가 아니다.
  */
-export function lowestNow({ today, history, minSalePrice, updatedAt }) {
-  if (!today?.length) return null;
-  const best = today.reduce((a, d) => (d.salePrice < a.salePrice ? d : a));
-  const min = recordMin(history, minSalePrice);
-  if (min === null || !(best.salePrice <= min)) return null;
-  const seenAt = (history ?? []).find(h => h.url === best.url)?.seenAt ?? best.seenAt ?? updatedAt;
-  return seenAt ? { price: best.salePrice, date: kstDate(seenAt) } : null;
+export function isRecordLow(daily, date, price) {
+  if (!validPrice(price) || !DATE_RE.test(date ?? '')) return null;
+  const before = mergeDaily(daily).filter(e => e.date < date);
+  if (before.length < 2) return null;
+  const prev = Math.min(...before.map(e => e.minPrice));
+  if (!(price < prev)) return null;
+  return { prev, price, pct: Math.round((1 - price / prev) * 100) };
 }
+
+/** 'YYYY-MM-DD' → 1970-01-01부터의 일수(그래프 x축용) */
+const dayNum = ymd => Math.round(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86400000);
+
+/**
+ * 가격 그래프 섹션. x는 실제 날짜 간격, 선은 하루 차이로 이어진 기록끼리만 잇는다(빈 날은 끊고 보간·0 채움 없음).
+ * 점은 기록마다 하나. 기록 1일이면 점 하나와 안내, 0일이면 안내 문구만.
+ */
+export function priceGraph(daily) {
+  const d = mergeDaily(daily);
+  const st = priceStats(d);
+  if (!st) {
+    return `<section class="pg" aria-labelledby="pg-h">
+    <h2 class="sec" id="pg-h">가격 그래프</h2>
+    <p class="pg-empty">아직 가격 기록이 없어요</p>
+  </section>`;
+  }
+  const W = 600, H = 180, PX = 16, PY = 18;
+  const span = Math.max(1, dayNum(st.end) - dayNum(st.start));
+  const x = e => (d.length === 1 ? W / 2 : PX + ((dayNum(e.date) - dayNum(st.start)) / span) * (W - 2 * PX));
+  const y = e => (st.max === st.min ? H / 2 : PY + ((st.max - e.minPrice) / (st.max - st.min)) * (H - 2 * PY));
+  const f = n => +n.toFixed(1);
+  const segs = [];
+  for (let i = 1; i < d.length; i++) {
+    if (dayNum(d[i].date) - dayNum(d[i - 1].date) !== 1) continue;
+    segs.push(`M${f(x(d[i - 1]))} ${f(y(d[i - 1]))}L${f(x(d[i]))} ${f(y(d[i]))}`);
+  }
+  const grid = st.max === st.min ? '' : [PY, H - PY].map(gy => `<line x1="0" x2="${W}" y1="${gy}" y2="${gy}" class="pg-grid"/>`).join('');
+  const dots = d.map(e => `<circle cx="${f(x(e))}" cy="${f(y(e))}" r="5" class="pg-dot${e.minPrice === st.min ? ' pg-min' : ''}"><title>${e.date} ${won(e.minPrice)}</title></circle>`).join('');
+  const label = d.length === 1
+    ? `${st.start} 일별 최저가 ${won(st.min)}`
+    : `일별 최저가 그래프, ${st.start}부터 ${st.end}까지 ${st.days}일 기록, 최고 ${won(st.max)}, 평균 ${won(st.avg)}, 최저 ${won(st.min)}`;
+  const svg = `<svg class="pg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${grid}${segs.length ? `<path d="${segs.join('')}" class="pg-line"/>` : ''}${dots}</svg>`;
+  const info = d.length === 1
+    ? `<p class="pg-one"><b>${won(st.min)}</b> <span class="muted">${st.start}</span></p>
+    <p class="pg-note">기록 1일 · 추이를 판단하기엔 기록이 부족해요</p>`
+    : `<dl class="pg-stats"><div><dt>최고</dt><dd>${won(st.max)}</dd></div><div><dt>평균</dt><dd>${won(st.avg)}</dd></div><div class="pg-lo"><dt>최저</dt><dd>${won(st.min)}</dd></div></dl>
+    <p class="pg-note">기록 기준: ${st.start} ~ ${st.end} (일별 최저가, ${st.days}일)</p>`;
+  const table = d.length > 1 ? `
+    <details class="pg-table"><summary>일별 기록 보기</summary><table><thead><tr><th>날짜</th><th>최저가</th></tr></thead><tbody>${[...d].reverse().map(e => `<tr><td>${e.date}</td><td>${won(e.minPrice)}</td></tr>`).join('')}</tbody></table></details>` : '';
+  return `<section class="pg" aria-labelledby="pg-h">
+    <h2 class="sec" id="pg-h">가격 그래프</h2>
+    <div class="pg-chart">${svg}</div>
+    ${info}${table}
+  </section>`;
+}
+
+// 그래프·최저가 배지 스타일(품목 페이지 전용). 흰 바탕, 선·점은 브랜드 주황, 최저는 빨강.
+const PAGE_CSS = `<style>
+.pg{margin:8px 0 28px;padding:16px;border:1px solid var(--line);border-radius:14px;background:#fff}
+.pg-chart{width:100%;max-width:100%;overflow:hidden}
+.pg-svg{display:block;width:100%;height:auto}
+.pg-grid{stroke:var(--line);stroke-width:1;stroke-dasharray:4 4;vector-effect:non-scaling-stroke}
+.pg-line{fill:none;stroke:var(--brand);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.pg-dot{fill:#fff;stroke:var(--brand);stroke-width:2;vector-effect:non-scaling-stroke}.pg-dot.pg-min{fill:var(--red);stroke:#fff}
+.pg-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0 6px}
+.pg-stats div{padding:8px 10px;border-radius:10px;background:#f7f8fa;min-width:0}
+.pg-stats dt{font-size:12px;color:var(--muted)}.pg-stats dd{margin:2px 0 0;font-size:15px;font-weight:700;overflow-wrap:anywhere}.pg-lo dd{color:var(--red)}
+.pg-one{margin:12px 0 4px;font-size:16px}.pg-note,.pg-empty{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.pg-table{margin-top:10px;font-size:13px}.pg-table summary{cursor:pointer;color:var(--muted)}
+.pg-table table{width:100%;border-collapse:collapse;margin-top:6px}.pg-table th,.pg-table td{padding:4px 0;border-bottom:1px solid var(--line);text-align:left}.pg-table td+td,.pg-table th+th{text-align:right}
+.pg-low{display:inline-block;max-width:100%;box-sizing:border-box;margin:6px 0 8px;padding:8px 12px;border-radius:10px;background:#fff1eb;color:#c2410c;font-size:15px;font-weight:700;overflow-wrap:anywhere}
+</style>`;
 
 /**
  * 오늘 딜이 끝난 품목: 마지막 딜과 최근 딜 기록은 링크 없는 텍스트(날짜·가격)로만 보여 준다.
@@ -204,12 +301,18 @@ function endedBody(item, history) {
  * 헤더·푸터는 index.html과 같은 마크업(경로만 /로 시작). 쿠팡 파트너스 고지문은 푸터에 한 번만.
  * MY 버튼은 assets/my.js만 싣는다(설정은 이 브라우저에 저장돼 메인 추천에 반영). app.js는 #q·#sort와
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
- * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 최저가 이하일 때만 ' 최저가 (YYYY-MM-DD 기준, 우리 기록)'을 붙인다.
+ * 제목·h1·og는 기본 '{품목} 가격 비교'. isRecordLow를 충족할 때만 '{품목} 최저가' + h1 아래 최저가 배지.
+ * daily는 오늘 가격까지 합친 일별 기록, date는 오늘 딜을 확인한 KST 날짜(기본: updatedAt의 KST 날짜).
  */
-export function renderPage({ item, items, today, history, updatedAt, minSalePrice, related = [] }) {
+export function renderPage({ item, items, today, history, updatedAt, daily = [], date, related = [] }) {
   const kw = item.keyword;
-  const low = lowestNow({ today, history, minSalePrice, updatedAt });
-  const title = `${kw} 비교${low ? ` 최저가 (${low.date} 기준, 우리 기록)` : ''}`;
+  const day = date ?? (updatedAt ? kstDate(updatedAt) : null);
+  const nowPrice = today.length ? Math.min(...today.map(d => d.salePrice)) : null;
+  const low = day && nowPrice !== null ? isRecordLow(daily, day, nowPrice) : null;
+  const title = low ? `${kw} 최저가` : `${kw} 가격 비교`;
+  const lowBadge = low
+    ? `\n    <p class="pg-low">🔥 지금까지 본 것 중 최저가 · ${won(low.prev)} → ${won(low.price)} (▼${low.pct >= 1 ? `${low.pct}%` : '1% 미만'})</p>`
+    : '';
   const desc = `${title} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`;
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
@@ -255,6 +358,7 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
 <meta name="twitter:description" content="${esc(desc)}">
 <meta name="twitter:image" content="${ORIGIN}/assets/og.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔥</text></svg>"><link rel="manifest" href="/manifest.json"><link rel="stylesheet" href="/assets/style.css">
+${PAGE_CSS}
 </head>
 <body>
 <header class="top">
@@ -263,12 +367,13 @@ export function renderPage({ item, items, today, history, updatedAt, minSalePric
 </header>
 <main class="wrap">
   <section class="hero">
-    <h1>${esc(title)}</h1>${ended ? '\n    <p class="ended-banner" role="status">끝난 딜이에요</p>' : ''}
+    <h1>${esc(title)}</h1>${ended ? '\n    <p class="ended-banner" role="status">끝난 딜이에요</p>' : ''}${lowBadge}
     ${updated ? `<p class="muted">${updated}</p>` : ''}
   </section>
   <section>
     ${body}
   </section>
+  ${priceGraph(daily)}
 ${relatedHtml}
 </main>
 <footer class="foot">
@@ -365,6 +470,7 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
   const oldSitemap = fs.existsSync(sitemapFile) ? fs.readFileSync(sitemapFile, 'utf8') : '';
   const oldLastmod = sitemapLastmods(oldSitemap);
   const seenAt = data.updatedAt ?? now.toISOString();
+  const seenDate = kstDate(seenAt); // 오늘 딜을 확인한 KST 날짜(일별 기록의 날짜)
   const today = kstDate(now);
   const changed = [];
   const noindex = new Set();
@@ -372,12 +478,13 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
   for (const item of items) {
     const rec = state.items[item.slug] ?? { deals: [] };
     const matched = matchDeals(data.deals, item);
-    // 기록 최저가는 합치기 전 기록 + 이전 누적값 + 오늘 가격으로 누적한다.
-    // mergeHistory가 같은 url을 오늘 가격으로 덮어쓰거나 HISTORY_MAX개로 자르기 전에 계산해야 예전 더 싼 가격이 사라지지 않는다.
-    const min = recordMin([...(rec.deals ?? []), ...matched], rec.minSalePrice);
-    if (min !== null) rec.minSalePrice = min;
+    // daily가 없는 예전 기록은 1회 이관: mergeHistory가 같은 url을 오늘 seenAt으로 덮어쓰기 전에 기존 딜로 만든다.
+    // 예전 누적 최저가(minSalePrice)는 날짜가 없어 일별 기록으로 옮기지 않고 지운다.
+    if (!Array.isArray(rec.daily)) rec.daily = dailyFromDeals(rec.deals);
+    delete rec.minSalePrice;
+    if (matched.length) rec.daily = mergeDaily(rec.daily, seenDate, Math.min(...matched.map(d => d.salePrice)));
     rec.deals = mergeHistory(rec.deals, matched, seenAt);
-    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, minSalePrice: rec.minSalePrice,
+    const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, daily: rec.daily, date: seenDate,
       related: relatedDeals({ deals: data.deals, item, items, today: matched }) });
     const indexable = isIndexable({ today: matched, history: rec.deals });
     if (!indexable) noindex.add(pageUrl(item.slug));
