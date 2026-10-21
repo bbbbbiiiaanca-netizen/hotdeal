@@ -17,15 +17,16 @@ test('1~3등 순위 배지와 금·은·동 색', () => {
   for (const n of [1, 2, 3]) assert.match(css, new RegExp(`\\.rank-${n}\\{`));
 });
 test('전체 딜 목록에는 순위 배지 없음 (map(card)로 index가 넘어가지 않게)', () => { assert.doesNotMatch(js, /\.map\(card\)/); });
-test('제목·설명·og에 핫딜/모음/특가/최저가', () => {
+test('제목·설명·og에 핫딜/모음/특가/가격 비교', () => {
   for (const re of [/<title>([^<]*)</, /name="description" content="([^"]*)"/, /property="og:title" content="([^"]*)"/, /property="og:description" content="([^"]*)"/]) {
     const t = html.match(re)[1];
     for (const k of ['핫딜', '모음', '특가']) assert.ok(t.includes(k), k + ' in ' + t);
   }
-  assert.match(html, /<title>[^<]*최저가/);
-  assert.match(html, /name="description" content="[^"]*최저가/);
+  assert.match(html, /<title>[^<]*가격 비교/);
+  assert.match(html, /name="description" content="[^"]*가격 기록/);
 });
 test('카드에는 최저가 라벨을 붙이지 않음 (기록 확인 전)', () => { assert.doesNotMatch(js, /최저가/); });
+test('홈 HTML 어디에도 최저가 단정 표현 없음', () => { assert.doesNotMatch(html, /최저가/); });
 test('전체 딜에서 TOP 상품 제외', () => { assert.match(js, /!topIds\.has\(String\(d\.id\)\)/); });
 test('TOP 순위: 할인율 1%p 이내면 비싼 상품 먼저', () => {
   const pct = d => Math.round((1 - d.salePrice / d.originalPrice) * 100);
