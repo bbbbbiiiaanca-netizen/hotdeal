@@ -6,7 +6,7 @@
  * 사용: node scripts/build-item-pages.mjs [--indexnow] [--dry-run]
  *   --indexnow  제출 대기 URL(바뀐 페이지 누적)을 scripts/indexnow-submit.mjs로 제출, 성공하면 대기 목록을 비운다
  *   --dry-run   --indexnow와 함께 쓰면 제출 직전까지만 확인(indexnow-submit.mjs --dry-run). 대기 목록은 그대로 둔다
- * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 일별 최저가 기록 daily(기간 제한 없음), 페이지 마지막 변경일)
+ * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 일별 기록 daily(그날 가장 낮은 가격·상품명·productId/url, 기간 제한 없음), 페이지 마지막 변경일)
  *                  state/indexnow-pending.json (아직 제출하지 못한 URL)
  */
 import fs from 'node:fs';
@@ -163,31 +163,50 @@ function relatedCard({ deal: d, page }) {
     </a></article>`;
 }
 
-// ── 일별 최저가 기록 (state.items[slug].daily = [{ date: 'YYYY-MM-DD'(KST), minPrice }]) ──
+// ── 일별 기록 (state.items[slug].daily = [{ date: 'YYYY-MM-DD'(KST), minPrice, title?, productId? | url? }]) ──
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const validPrice = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
 
-/**
- * 일별 기록에 (date, price)를 합친다. 같은 날짜는 더 낮은 값으로만 갱신, 날짜 중복 없음, 날짜순 정렬.
- * 0·음수·숫자 아님·날짜 형식 틀림은 버린다(기존 기록의 잘못된 항목도 함께 정리). 입력은 바꾸지 않는다.
- */
-export function mergeDaily(daily, date, price) {
-  const byDate = new Map();
-  const put = (d, p) => {
-    if (!DATE_RE.test(d ?? '') || !validPrice(p)) return;
-    if (!byDate.has(d) || p < byDate.get(d)) byDate.set(d, p);
-  };
-  for (const e of daily ?? []) put(e?.date, e?.minPrice);
-  put(date, price);
-  return [...byDate].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([date, minPrice]) => ({ date, minPrice }));
+/** 상품 식별: 쿠팡 상품 URL(/vp/products/<숫자>)이면 { productId }, 아니면(단축 링크 등) { url }. 추정하지 않는다. */
+export function productRef(url) {
+  if (typeof url !== 'string' || !url) return {};
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/^\/vp\/products\/(\d+)(?:\/|$)/);
+    if (m && /(^|\.)coupang\.com$/.test(u.hostname)) return { productId: m[1] };
+  } catch {}
+  return { url };
 }
 
-/** 1회 이관: 기존 딜 기록 중 seenAt(유효한 시각)과 salePrice(양수)가 둘 다 있는 것만 그 KST 날짜의 기록으로 만든다. 추정하지 않는다. */
+const dailyEntry = (date, minPrice, { title, productId, url } = {}) => {
+  const e = { date, minPrice };
+  if (typeof title === 'string' && title) e.title = title;
+  Object.assign(e, productId ? { productId: String(productId) } : productRef(url));
+  return e;
+};
+
+/**
+ * 일별 기록에 (date, price, { title, url })를 합친다. 같은 날짜는 더 낮은 값일 때만 항목 전체(가격·상품명·productId/url)를 바꾸고,
+ * 같거나 비싸면 기존 항목을 그대로 둔다. 날짜 중복 없음, 날짜순 정렬.
+ * 0·음수·숫자 아님·날짜 형식 틀림은 버린다(기존 기록의 잘못된 항목도 함께 정리). 입력은 바꾸지 않는다.
+ */
+export function mergeDaily(daily, date, price, info) {
+  const byDate = new Map();
+  const put = e => {
+    if (!DATE_RE.test(e.date ?? '') || !validPrice(e.minPrice)) return;
+    if (!byDate.has(e.date) || e.minPrice < byDate.get(e.date).minPrice) byDate.set(e.date, e);
+  };
+  for (const e of daily ?? []) if (e) put(dailyEntry(e.date, e.minPrice, e));
+  put(dailyEntry(date, price, info ?? {}));
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+/** 1회 이관: 기존 딜 기록 중 seenAt(유효한 시각)과 salePrice(양수)가 둘 다 있는 것만 그 KST 날짜의 기록으로(딜의 title·url 포함) 만든다. 추정하지 않는다. */
 export function dailyFromDeals(deals) {
   let daily = [];
   for (const d of deals ?? []) {
     if (!d?.seenAt || Number.isNaN(new Date(d.seenAt).getTime())) continue;
-    daily = mergeDaily(daily, kstDate(d.seenAt), d.salePrice);
+    daily = mergeDaily(daily, kstDate(d.seenAt), d.salePrice, d);
   }
   return daily;
 }
@@ -220,14 +239,21 @@ export function isRecordLow(daily, date, price, todayMin = mergeDaily(daily, dat
   return { prev, price, pct: Math.round((1 - price / prev) * 100) };
 }
 
+/** 기록 기간 문구: 'YYYY-MM-DD ~ YYYY-MM-DD, N일' */
+const period = st => `${st.start} ~ ${st.end}, ${st.days}일`;
+
+/** 기록 항목의 상품 링크: url이 있으면 그 링크(subId 적용), productId만 있으면 쿠팡 상품 페이지, 둘 다 없으면 null */
+const entryHref = (e, subId) => e.url ? withSubId(e.url, subId) : e.productId ? `https://www.coupang.com/vp/products/${encodeURIComponent(e.productId)}` : null;
+
 /** 'YYYY-MM-DD' → 1970-01-01부터의 일수(그래프 x축용) */
 const dayNum = ymd => Math.round(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10)) / 86400000);
 
 /**
  * 가격 그래프 섹션. x는 실제 날짜 간격, 선은 하루 차이로 이어진 기록끼리만 잇는다(빈 날은 끊고 보간·0 채움 없음).
- * 점은 기록마다 하나. 기록 1일이면 점 하나와 안내, 0일이면 안내 문구만.
+ * 점은 기록마다 하나(툴팁: 날짜·가격·상품명). 기록 1일이면 점 하나와 안내, 0일이면 안내 문구만.
+ * 그래프 아래에 기록 기간과 '기록 상세'(날짜·가격·상품명 링크, 최신순)를 붙인다. subId는 기록 링크에 넣는다.
  */
-export function priceGraph(daily) {
+export function priceGraph(daily, { subId } = {}) {
   const d = mergeDaily(daily);
   const st = priceStats(d);
   if (!st) {
@@ -247,22 +273,28 @@ export function priceGraph(daily) {
     segs.push(`M${f(x(d[i - 1]))} ${f(y(d[i - 1]))}L${f(x(d[i]))} ${f(y(d[i]))}`);
   }
   const grid = st.max === st.min ? '' : [PY, H - PY].map(gy => `<line x1="0" x2="${W}" y1="${gy}" y2="${gy}" class="pg-grid"/>`).join('');
-  const dots = d.map(e => `<circle cx="${f(x(e))}" cy="${f(y(e))}" r="5" class="pg-dot${e.minPrice === st.min ? ' pg-min' : ''}"><title>${e.date} ${won(e.minPrice)}</title></circle>`).join('');
+  const dots = d.map(e => `<circle cx="${f(x(e))}" cy="${f(y(e))}" r="5" class="pg-dot${e.minPrice === st.min ? ' pg-min' : ''}"><title>${e.date} ${won(e.minPrice)}${e.title ? ` · ${esc(e.title)}` : ''}</title></circle>`).join('');
   const label = d.length === 1
-    ? `${st.start} 일별 최저가 ${won(st.min)}`
-    : `일별 최저가 그래프, ${st.start}부터 ${st.end}까지 ${st.days}일 기록, 최고 ${won(st.max)}, 평균 ${won(st.avg)}, 최저 ${won(st.min)}`;
+    ? `${st.start} 기록 가격 ${won(st.min)}`
+    : `일별 가격 그래프, ${st.start}부터 ${st.end}까지 ${st.days}일 기록, 최고 ${won(st.max)}, 평균 ${won(st.avg)}, 최저 ${won(st.min)}`;
   const svg = `<svg class="pg-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${grid}${segs.length ? `<path d="${segs.join('')}" class="pg-line"/>` : ''}${dots}</svg>`;
   const info = d.length === 1
     ? `<p class="pg-one"><b>${won(st.min)}</b> <span class="muted">${st.start}</span></p>
-    <p class="pg-note">기록 1일 · 추이를 판단하기엔 기록이 부족해요</p>`
+    <p class="pg-note">기록 기간: ${period(st)} · 추이를 판단하기엔 기록이 부족해요</p>`
     : `<dl class="pg-stats"><div><dt>최고</dt><dd>${won(st.max)}</dd></div><div><dt>평균</dt><dd>${won(st.avg)}</dd></div><div class="pg-lo"><dt>최저</dt><dd>${won(st.min)}</dd></div></dl>
-    <p class="pg-note">기록 기준: ${st.start} ~ ${st.end} (일별 최저가, ${st.days}일)</p>`;
-  const table = d.length > 1 ? `
-    <details class="pg-table"><summary>일별 기록 보기</summary><table><thead><tr><th>날짜</th><th>최저가</th></tr></thead><tbody>${[...d].reverse().map(e => `<tr><td>${e.date}</td><td>${won(e.minPrice)}</td></tr>`).join('')}</tbody></table></details>` : '';
+    <p class="pg-note">기록 기간: ${period(st)} (날마다 확인한 가장 낮은 가격)</p>`;
+  const name = e => {
+    if (!e.title) return '<span class="muted">상품명 기록 없음</span>';
+    const href = entryHref(e, subId);
+    return href ? `<a href="${esc(href)}" target="_blank" rel="sponsored nofollow noopener">${esc(e.title)}</a>` : esc(e.title);
+  };
+  const detail = `
+    <div class="pg-detail"><h3 class="pg-h3">기록 상세</h3><p class="pg-note">기록 당시 가격이며 지금 가격과 다를 수 있어요.</p>
+    <ul class="pg-list">${[...d].reverse().map(e => `<li><span class="pg-date">${e.date}</span> <b>${won(e.minPrice)}</b> <span class="pg-name">${name(e)}</span></li>`).join('')}</ul></div>`;
   return `<section class="pg" aria-labelledby="pg-h">
     <h2 class="sec" id="pg-h">가격 그래프</h2>
     <div class="pg-chart">${svg}</div>
-    ${info}${table}
+    ${info}${detail}
   </section>`;
 }
 
@@ -278,8 +310,9 @@ const PAGE_CSS = `<style>
 .pg-stats div{padding:8px 10px;border-radius:10px;background:#f7f8fa;min-width:0}
 .pg-stats dt{font-size:12px;color:var(--muted)}.pg-stats dd{margin:2px 0 0;font-size:15px;font-weight:700;overflow-wrap:anywhere}.pg-lo dd{color:var(--red)}
 .pg-one{margin:12px 0 4px;font-size:16px}.pg-note,.pg-empty{margin:4px 0 0;font-size:13px;color:var(--muted)}
-.pg-table{margin-top:10px;font-size:13px}.pg-table summary{cursor:pointer;color:var(--muted)}
-.pg-table table{width:100%;border-collapse:collapse;margin-top:6px}.pg-table th,.pg-table td{padding:4px 0;border-bottom:1px solid var(--line);text-align:left}.pg-table td+td,.pg-table th+th{text-align:right}
+.pg-detail{margin-top:14px}.pg-h3{margin:0;font-size:15px}
+.pg-list{list-style:none;margin:6px 0 0;padding:0;font-size:13px}.pg-list li{padding:6px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.pg-date{color:var(--muted)}.pg-name a{color:inherit}
 .pg-low{display:inline-block;max-width:100%;box-sizing:border-box;margin:6px 0 8px;padding:8px 12px;border-radius:10px;background:#fff1eb;color:#c2410c;font-size:15px;font-weight:700;overflow-wrap:anywhere}
 </style>`;
 
@@ -304,7 +337,9 @@ function endedBody(item, history) {
  * 헤더·푸터는 index.html과 같은 마크업(경로만 /로 시작). 쿠팡 파트너스 고지문은 푸터에 한 번만.
  * MY 버튼은 assets/my.js만 싣는다(설정은 이 브라우저에 저장돼 메인 추천에 반영). app.js는 #q·#sort와
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
- * 제목·h1·og는 기본 '{품목} 가격 비교'. isRecordLow를 충족할 때만 '{품목} 최저가' + h1 아래 최저가 배지.
+ * 제목·h1·og·twitter·description은 항상 '{품목} 가격 비교'('최저가'로 단정하는 문구는 쓰지 않는다:
+ * 쿠팡 파트너스 가이드 '최고, 최저가 등 과대 표현 최소화'). isRecordLow를 충족할 때만 h1 아래에
+ * '우리 기록(기간) 중 가장 낮은 가격' 배너를 붙인다.
  * daily는 오늘 가격까지 합친 일별 기록, date는 오늘 딜을 확인한 KST 날짜(기본: updatedAt의 KST 날짜).
  */
 export function renderPage({ item, items, today, history, updatedAt, daily = [], date, related = [] }) {
@@ -313,9 +348,9 @@ export function renderPage({ item, items, today, history, updatedAt, daily = [],
   const nowPrice = today.length ? Math.min(...today.map(d => d.salePrice)) : null;
   const todayMin = day ? mergeDaily(daily).find(e => e.date === day)?.minPrice : undefined;
   const low = day && nowPrice !== null ? isRecordLow(daily, day, nowPrice, todayMin) : null;
-  const title = low ? `${kw} 최저가` : `${kw} 가격 비교`;
+  const title = `${kw} 가격 비교`;
   const lowBadge = low
-    ? `\n    <p class="pg-low">🔥 지금까지 본 것 중 최저가 · ${won(low.prev)} → ${won(low.price)} (▼${low.pct >= 1 ? `${low.pct}%` : '1% 미만'})</p>`
+    ? `\n    <p class="pg-low">🔥 우리 기록(${period(priceStats(daily))}) 중 가장 낮은 가격 · ${won(low.prev)} → ${won(low.price)} (▼${low.pct >= 1 ? `${low.pct}%` : '1% 미만'})</p>`
     : '';
   const desc = `${title} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`;
   const canonical = pageUrl(item.slug);
@@ -377,7 +412,7 @@ ${PAGE_CSS}
   <section>
     ${body}
   </section>
-  ${priceGraph(daily)}
+  ${priceGraph(daily, { subId: item.subId })}
 ${relatedHtml}
 </main>
 <footer class="foot">
@@ -486,7 +521,10 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
     // 예전 누적 최저가(minSalePrice)는 날짜가 없어 일별 기록으로 옮기지 않고 지운다.
     if (!Array.isArray(rec.daily)) rec.daily = dailyFromDeals(rec.deals);
     delete rec.minSalePrice;
-    if (matched.length) rec.daily = mergeDaily(rec.daily, seenDate, Math.min(...matched.map(d => d.salePrice)));
+    if (matched.length) {
+      const cheapest = matched.reduce((a, b) => (b.salePrice < a.salePrice ? b : a));
+      rec.daily = mergeDaily(rec.daily, seenDate, cheapest.salePrice, cheapest);
+    }
     rec.deals = mergeHistory(rec.deals, matched, seenAt);
     const html = renderPage({ item, items, today: matched, history: rec.deals, updatedAt: data.updatedAt, daily: rec.daily, date: seenDate,
       related: relatedDeals({ deals: data.deals, item, items, today: matched }) });
