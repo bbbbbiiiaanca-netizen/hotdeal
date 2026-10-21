@@ -116,11 +116,11 @@ function card(d, item, seenNote) {
     ? `<img src="${esc(d.image)}" alt="${esc(d.title)}" loading="lazy">`
     : '<div class="ph" aria-hidden="true">🛒</div>';
   return `<article class="card">
-    <div class="thumb">${img}${p ? `<span class="badge">-${p}%</span>` : ''}</div>
+    <div class="thumb">${img}</div>
     <div class="body">
       <div class="tags"><span class="tag">${esc(item.category)}</span>${seenNote ? `<span class="tag">${esc(seenNote)}</span>` : ''}${stockRush(d) ? '<span class="tag">품절대란</span>' : ''}</div>
       <h3>${esc(d.title)}</h3>
-      <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b>${p ? ` <span class="muted">${p}% 할인</span>` : ''}</div>
+      <div class="price">${p ? `<s>${won(d.originalPrice)}</s>` : ''}<b>${won(d.salePrice)}</b></div>
       <a class="btn-now-price" data-track="1" data-id="${esc(d.id ?? '')}" data-cat="${esc(d.category ?? item.category)}" data-title="${esc(d.title)}" href="${esc(href)}"${missing} target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</a>
     </div></article>`;
 }
@@ -158,7 +158,7 @@ function relatedCard({ deal: d, page }) {
   return `<article class="rel-card"><a ${attrs}>
       <div class="rel-thumb">${img}</div>
       <h3>${esc(d.title)}</h3>
-      <div class="rel-price">${p ? `<span class="rel-pct">${p}%</span>` : ''}<b>${won(d.salePrice)}</b></div>
+      <div class="rel-price"><b>${won(d.salePrice)}</b></div>
       ${p ? `<s class="rel-was">${won(d.originalPrice)}</s>` : ''}
     </a></article>`;
 }

@@ -94,7 +94,7 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   assert.match(html, /신일 팬히터 SFH-1/);
   assert.match(html, /<b>19,300원<\/b>/);
   assert.match(html, /<s>30,000원<\/s>/);
-  assert.match(html, /-36%/);
+  assert.doesNotMatch(html, /-\d{1,3}%/);
   assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh1" data-subid-missing="1" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</);
   assert.match(html, /<link rel="canonical" href="https:\/\/hotdeal\.sooinlab\.com\/deal\/%ED%8C%AC%ED%9E%88%ED%84%B0\/">/);
   assert.match(html, /href="\/assets\/style\.css"/);
@@ -701,4 +701,16 @@ test('설정의 새 품목 3개: 비교표+출처 있는 요약, 금지 문구 �
       assert.ok(!seen.has(s), `중복 문장: ${s}`); seen.add(s);
     }
   }
+});
+
+test('품목 페이지에는 할인율(-NN%, NN% 할인)이 나오지 않고 가격·날짜는 남는다', () => {
+  const root = site([deal('fh1', '신일 팬히터 SFH-1'), deal('fh2', '한일 팬히터 HF-2', { originalPrice: 50000, salePrice: 20000 })]);
+  buildAll({ root, now: D1 });
+  const html = page(root, '팬히터');
+  assert.doesNotMatch(html, /-\d{1,3}%/);
+  assert.doesNotMatch(html, /\d+% 할인/);
+  assert.doesNotMatch(html, /rel-pct|class="badge"/);
+  assert.match(html, /<b>19,300원<\/b>/);
+  assert.match(html, /<s>30,000원<\/s>/);
+  assert.match(html, /2026-10-15 기준/);
 });
