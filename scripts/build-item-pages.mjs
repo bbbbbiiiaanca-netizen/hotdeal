@@ -295,16 +295,38 @@ export function sitemapLastmods(xml) {
   return map;
 }
 
-/** 기존 사이트맵에서 /deal/ 이 아닌 항목은 그대로 두고, 품목 페이지 항목을 다시 만든다. */
-export function buildSitemap(existingXml, dealEntries) {
-  const lines = (existingXml.match(/<url>[\s\S]*?<\/url>/g) ?? [])
+/** 사이트맵에 늘 있어야 하는 고정 페이지(빠지면 다시 넣는다) */
+export const CORE_PAGES = [
+  { loc: `${ORIGIN}/`, changefreq: 'daily', priority: '1.0' },
+  { loc: `${ORIGIN}/about.html`, changefreq: 'monthly', priority: '0.5' },
+  { loc: `${ORIGIN}/privacy.html`, changefreq: 'yearly', priority: '0.3' },
+];
+
+/** <url> 항목의 lastmod가 없거나 비어 있으면 fallback으로 채운다 */
+const fillLastmod = (u, fallback) => /<lastmod>\s*\S[^<]*<\/lastmod>/.test(u) ? u
+  : u.replace(/<lastmod>[^<]*<\/lastmod>/, '').replace(/<\/loc>/, `</loc><lastmod>${fallback}</lastmod>`);
+
+/**
+ * 기존 사이트맵에서 /deal/ 이 아닌 항목은 그대로 두고, 품목 페이지 항목을 다시 만든다.
+ * 홈·about·privacy가 빠졌으면 다시 넣고, lastmod가 비면 today(KST)로 채운다.
+ */
+export function buildSitemap(existingXml, dealEntries, today = kstDate(new Date())) {
+  const kept = (existingXml.match(/<url>[\s\S]*?<\/url>/g) ?? [])
     .filter(u => !/<loc>[^<]*\/deal\//.test(u))
-    .map(u => `  ${u.trim()}`);
+    .map(u => fillLastmod(u.trim(), today));
+  const locOf = u => unesc(u.match(/<loc>\s*([^<]*?)\s*<\/loc>/)?.[1] ?? '');
+  const lines = [];
+  for (const c of CORE_PAGES) {
+    const hit = kept.find(u => locOf(u) === c.loc);
+    lines.push(`  ${hit ?? `<url><loc>${esc(c.loc)}</loc><lastmod>${today}</lastmod><changefreq>${c.changefreq}</changefreq><priority>${c.priority}</priority></url>`}`);
+  }
+  const core = new Set(CORE_PAGES.map(c => c.loc));
+  for (const u of kept) if (!core.has(locOf(u))) lines.push(`  ${u}`);
   const known = new Set();
   for (const { loc, lastmod } of dealEntries) {
     if (known.has(loc)) continue;
     known.add(loc);
-    lines.push(`  <url><loc>${esc(loc)}</loc>${lastmod ? `<lastmod>${lastmod}</lastmod>` : ''}<changefreq>daily</changefreq><priority>0.7</priority></url>`);
+    lines.push(`  <url><loc>${esc(loc)}</loc><lastmod>${lastmod || today}</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>`);
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -399,9 +421,9 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
     if (items.some(i => i.slug === slug)) continue;
     const loc = pageUrl(slug);
     if (noindexOnDisk(root, slug)) { noindex.add(loc); continue; }
-    entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || '' });
+    entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || today });
   }
-  writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries));
+  writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries, today));
   writeIfChanged(stateFile, JSON.stringify(state, null, 2) + '\n');
   const pending = readPending(root);
   const nextPending = [...new Set([...pending, ...changed])].filter(u => !noindex.has(u));

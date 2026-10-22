@@ -17,13 +17,13 @@ test('1~3등 순위 배지와 금·은·동 색', () => {
   for (const n of [1, 2, 3]) assert.match(css, new RegExp(`\\.rank-${n}\\{`));
 });
 test('전체 딜 목록에는 순위 배지 없음 (map(card)로 index가 넘어가지 않게)', () => { assert.doesNotMatch(js, /\.map\(card\)/); });
-test('제목·설명·og에 핫딜/모음/특가/최저가', () => {
+test('제목·설명·og에 핫딜/모음/특가, 최저가는 없음', () => {
   for (const re of [/<title>([^<]*)</, /name="description" content="([^"]*)"/, /property="og:title" content="([^"]*)"/, /property="og:description" content="([^"]*)"/]) {
     const t = html.match(re)[1];
     for (const k of ['핫딜', '모음', '특가']) assert.ok(t.includes(k), k + ' in ' + t);
   }
-  assert.match(html, /<title>[^<]*최저가/);
-  assert.match(html, /name="description" content="[^"]*최저가/);
+  assert.doesNotMatch(html, /<title>[^<]*최저가/);
+  assert.doesNotMatch(html, /name="description" content="[^"]*최저가/);
 });
 test('카드에는 최저가 라벨을 붙이지 않음 (기록 확인 전)', () => { assert.doesNotMatch(js, /최저가/); });
 test('전체 딜에서 TOP 상품 제외', () => { assert.match(js, /!topIds\.has\(String\(d\.id\)\)/); });
