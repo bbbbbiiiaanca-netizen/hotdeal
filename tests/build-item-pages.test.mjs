@@ -89,9 +89,10 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   const { changed } = buildAll({ root, now: D1 });
   assert.deepEqual(changed, [pageUrl('팬히터')]);
   const html = page(root, '팬히터');
-  // 첫 딜이라 기록 최저가와 같음 → 최저가 문구
-  assert.match(html, /<title>팬히터 비교 최저가 \(2026-10-15 기준, 우리 기록\)<\/title>/);
-  assert.match(html, /<h1>팬히터 비교 최저가 \(2026-10-15 기준, 우리 기록\)<\/h1>/);
+  // 첫 딜이라 기록 최저가와 같음 → '기록된 가격' 문구
+  assert.match(html, /<title>팬히터 비교 기록된 가격 \(2026-10-15 기준\)<\/title>/);
+  assert.match(html, /<h1>팬히터 비교 기록된 가격 \(2026-10-15 기준\)<\/h1>/);
+  assert.doesNotMatch(html, /최저가/);
   assert.match(html, /신일 팬히터 SFH-1/);
   assert.match(html, /<b>19,300원<\/b>/);
   assert.match(html, /<s>30,000원<\/s>/);
@@ -381,7 +382,7 @@ test('제목 기본값: title·h1·description 모두 "{품목} 비교" (최저�
 });
 
 test('최저가: 오늘 딜이 기록 최저가 이하일 때만, 날짜는 그 딜의 seenAt(KST)', () => {
-  const suffix = ' 최저가 (2026-10-14 기준, 우리 기록)';
+  const suffix = ' 기록된 가격 (2026-10-14 기준)';
   // 기록 최저가와 같은 가격 → 표시(이하). seenAt 2026-10-13T16:00Z = KST 10-14
   const eq = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 19300 })],
     history: [H('n', 19300, '2026-10-13T16:00:00Z'), H('o', 19300, '2026-10-01T07:00:00+09:00')] });
@@ -392,26 +393,31 @@ test('최저가: 오늘 딜이 기록 최저가 이하일 때만, 날짜는 그 
   const multi = renderPage({ ...R, today: [deal('a', '팬히터 a', { salePrice: 50000 }), deal('b', '팬히터 b', { salePrice: 9000 })],
     history: [H('a', 50000, '2026-10-15T07:33:00+09:00'), H('b', 9000, '2026-10-14T07:33:00+09:00'), H('o', 10000, '2026-10-01T07:00:00+09:00')] });
   assert.equal(titleOf(multi), `팬히터 비교${suffix}`);
+  for (const html of [eq, multi]) assert.doesNotMatch(html, /최저가/);
   // 1원이라도 비싸면 없음
   const above = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 19301 })],
     history: [H('n', 19301, '2026-10-14T07:33:00+09:00'), H('o', 19300, '2026-10-01T07:00:00+09:00')] });
+  assert.doesNotMatch(above, /기록된 가격/);
   assert.doesNotMatch(above, /최저가/);
   // 기록에서 밀려난 딜의 누적 최저가(minSalePrice)도 반영
   const evicted = renderPage({ ...R, minSalePrice: 15000, today: [deal('n', '팬히터 n', { salePrice: 19300 })],
     history: [H('n', 19300, '2026-10-14T07:33:00+09:00')] });
-  assert.doesNotMatch(titleOf(evicted), /최저가/);
+  assert.doesNotMatch(titleOf(evicted), /기록된 가격/);
+  assert.doesNotMatch(evicted, /최저가/);
 });
 
 test('최저가: buildAll — 첫 딜·더 싼 딜이면 표시, 더 비싼 딜이면 없음, 누적 최저가는 state에 남는다', () => {
   const root = site([deal('fh1', '팬히터 A', { salePrice: 20000 })], '2026-10-15T07:33:00+09:00');
   buildAll({ root, now: D1 });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 최저가 (2026-10-15 기준, 우리 기록)');
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 기록된 가격 (2026-10-15 기준)');
+  assert.doesNotMatch(page(root, '팬히터'), /최저가/);
   setDeals(root, [deal('fh2', '팬히터 B', { salePrice: 25000 })], '2026-10-16T07:30:00+09:00');
   buildAll({ root, now: D2 });
   assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교');
   setDeals(root, [deal('fh3', '팬히터 C', { salePrice: 18000 })], '2026-10-17T07:30:00+09:00');
   buildAll({ root, now: new Date('2026-10-17T00:00:00Z') });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 최저가 (2026-10-17 기준, 우리 기록)');
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 기록된 가격 (2026-10-17 기준)');
+  assert.doesNotMatch(page(root, '팬히터'), /최저가/);
   assert.equal(readState(root).items['팬히터'].minSalePrice, 18000);
   rmSync(root, { recursive: true });
 });
@@ -425,6 +431,7 @@ test('최저가 회귀: 기록 10,000원 딜이 같은 URL로 20,000원에 다�
   ] } } }));
   buildAll({ root, now: D2 });
   assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교');
+  assert.doesNotMatch(page(root, '팬히터'), /기록된 가격/);
   assert.doesNotMatch(page(root, '팬히터'), /최저가/);
   const rec = readState(root).items['팬히터'];
   assert.equal(rec.minSalePrice, 10000);
@@ -623,7 +630,8 @@ test('h1: 품목 페이지마다 h1은 "{품목} 비교" 하나뿐, 로고는 h1
   for (const html of pages) {
     const h1s = [...html.matchAll(/<h1[\s>][\s\S]*?<\/h1>/g)].map(m => m[0]);
     assert.equal(h1s.length, 1);
-    assert.match(h1s[0], /^<h1>팬히터 비교( 최저가 \(\d{4}-\d{2}-\d{2} 기준, 우리 기록\))?<\/h1>$/);
+    assert.match(h1s[0], /^<h1>팬히터 비교( 기록된 가격 \(\d{4}-\d{2}-\d{2} 기준\))?<\/h1>$/);
+    assert.doesNotMatch(html, /최저가/);
     assert.doesNotMatch(html, /logo-h1/);
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
     assert.doesNotMatch(header, /<h1/);
