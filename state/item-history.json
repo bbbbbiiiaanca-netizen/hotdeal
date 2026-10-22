@@ -2,39 +2,39 @@
   "items": {
     "팬히터": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "스마트TV": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "착즙기": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "크로스백": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "카플레이동글": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "수분크림": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "리커버리슬리퍼": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "귀걸이": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "원터치텐트": {
       "deals": [],
-      "lastmod": "2026-10-16"
+      "lastmod": "2026-10-21"
     },
     "톤업선크림": {
       "deals": [
@@ -47,8 +47,50 @@
           "seenAt": "2026-10-15T07:33:00+09:00"
         }
       ],
-      "lastmod": "2026-10-16",
+      "lastmod": "2026-10-21",
       "minSalePrice": 55140
+    },
+    "고양이모래": {
+      "deals": [
+        {
+          "title": "포우장 먼지 안녕 벤토나이트 고양이 모래, 9kg, 2개, 무향",
+          "salePrice": 43320,
+          "originalPrice": 43320,
+          "image": "https://thumbnail.coupangcdn.com/thumbnails/remote/292x292ex/image/retail/images/1141824460181641-efc2b29a-e53e-41bf-949e-3e52815a957c.png",
+          "url": "https://link.coupang.com/a/hUkSbC9nX2",
+          "seenAt": "2026-10-17T07:22:00+09:00"
+        }
+      ],
+      "minSalePrice": 43320,
+      "lastmod": "2026-10-21"
+    },
+    "캡슐세제": {
+      "deals": [
+        {
+          "title": "부케가르니 딥 클린 초고농축 캡슐세제, 100개입, 1개",
+          "salePrice": 11900,
+          "originalPrice": 30000,
+          "image": "https://thumbnail.coupangcdn.com/thumbnails/remote/292x292ex/image/retail/images/63243553069423-6dc9da71-5455-46bd-a2d7-33c00c3a188f.jpg",
+          "url": "https://link.coupang.com/a/hUkPMbNI2m",
+          "seenAt": "2026-10-17T07:22:00+09:00"
+        }
+      ],
+      "minSalePrice": 11900,
+      "lastmod": "2026-10-21"
+    },
+    "부스터카시트": {
+      "deals": [
+        {
+          "title": "다이치 이노픽스 프라임 부스터 카시트 분리형, 미드나이트 블랙",
+          "salePrice": 63000,
+          "originalPrice": 85000,
+          "image": "https://thumbnail.coupangcdn.com/thumbnails/remote/292x292ex/image/retail/images/2026/08/25/10/3/16fa7d97-14e8-4c4d-95c8-3138def3da16.jpg",
+          "url": "https://link.coupang.com/a/hUkNrCDNGS",
+          "seenAt": "2026-10-17T07:22:00+09:00"
+        }
+      ],
+      "minSalePrice": 63000,
+      "lastmod": "2026-10-21"
     }
   }
 }

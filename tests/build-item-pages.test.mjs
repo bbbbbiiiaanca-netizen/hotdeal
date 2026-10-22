@@ -89,13 +89,12 @@ test('상태 (a): 오늘 딜 표시 + 단축 링크는 subId 없이 data-subid-m
   const { changed } = buildAll({ root, now: D1 });
   assert.deepEqual(changed, [pageUrl('팬히터')]);
   const html = page(root, '팬히터');
-  // 첫 딜이라 기록 최저가와 같음 → 최저가 문구
-  assert.match(html, /<title>팬히터 비교 최저가 \(2026-10-15 기준, 우리 기록\)<\/title>/);
-  assert.match(html, /<h1>팬히터 비교 최저가 \(2026-10-15 기준, 우리 기록\)<\/h1>/);
+  assert.match(html, /<title>팬히터 가격 비교 \(2026-10-15 기준\)<\/title>/);
+  assert.match(html, /<h1>팬히터 가격 비교 \(2026-10-15 기준\)<\/h1>/);
   assert.match(html, /신일 팬히터 SFH-1/);
   assert.match(html, /<b>19,300원<\/b>/);
   assert.match(html, /<s>30,000원<\/s>/);
-  assert.match(html, /-36%/);
+  assert.doesNotMatch(html, /-\d{1,3}%/);
   assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh1" data-subid-missing="1" target="_blank" rel="sponsored nofollow noopener">쿠팡에서 지금 가격 보기</);
   assert.match(html, /<link rel="canonical" href="https:\/\/hotdeal\.sooinlab\.com\/deal\/%ED%8C%AC%ED%9E%88%ED%84%B0\/">/);
   assert.match(html, /href="\/assets\/style\.css"/);
@@ -367,56 +366,45 @@ function assertNoBodyTelegram(html) {
   assert.equal(html.split('https://t.me/hotdeal_oide').length - 1, 1);
 }
 
-test('제목 기본값: title·h1·description 모두 "{품목} 비교" (최저가 아니면 덧붙이지 않음)', () => {
-  // 오늘 딜(25,000원)이 기록 최저가(19,300원)보다 비쌈
-  const html = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 25000 })],
-    history: [H('n', 25000, '2026-10-15T07:33:00+09:00'), H('o', 19300, '2026-10-10T07:00:00+09:00')] });
-  assert.equal(titleOf(html), '팬히터 비교');
-  assert.equal(h1Of(html), '팬히터 비교');
-  assert.equal(descOf(html), '팬히터 비교 | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데');
-  assert.doesNotMatch(html, /최저가·핫딜|오늘 핫딜<\/h1>/);
-  // 준비 중·끝난 딜도 기본값
-  assert.equal(titleOf(renderPage({ ...R, today: [], history: [] })), '팬히터 비교');
-  assert.equal(titleOf(renderPage({ ...R, today: [], history: [H('o', 100, '2026-10-10T07:00:00+09:00')] })), '팬히터 비교');
+test('제목: title·h1·description·og·twitter 모두 "{품목} 가격 비교 (YYYY-MM-DD 기준)", 날짜는 갱신일(KST)', () => {
+  const T = '팬히터 가격 비교 (2026-10-15 기준)';
+  const cases = [
+    renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 25000 })],
+      history: [H('n', 25000, '2026-10-15T07:33:00+09:00'), H('o', 19300, '2026-10-10T07:00:00+09:00')] }),
+    renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 19300 })],
+      history: [H('n', 19300, '2026-10-13T16:00:00Z'), H('o', 19300, '2026-10-01T07:00:00+09:00')] }),
+    renderPage({ ...R, minSalePrice: 15000, today: [deal('n', '팬히터 n', { salePrice: 19300 })], history: [H('n', 19300, '2026-10-14T07:33:00+09:00')] }),
+    renderPage({ ...R, today: [], history: [] }),
+    renderPage({ ...R, today: [], history: [H('o', 100, '2026-10-10T07:00:00+09:00')] }),
+  ];
+  for (const html of cases) {
+    assert.equal(titleOf(html), T);
+    assert.equal(h1Of(html), T);
+    assert.equal(descOf(html), `${T} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`);
+    for (const m of html.matchAll(/<meta (?:property|name)="(?:og|twitter):(?:title|description)" content="([^"]*)">/g)) assert.ok(m[1].startsWith(T), m[0]);
+    // 가장 낮은 가격을 주장하는 표현은 어떤 경우에도 없음
+    assert.doesNotMatch(html, /최저가|가장 낮은 가격|우리 기록 중|최저/);
+  }
+  // 갱신일이 KST 기준으로 바뀌는지
+  assert.equal(titleOf(renderPage({ ...R, updatedAt: '2026-10-16T16:00:00Z', today: [], history: [] })), '팬히터 가격 비교 (2026-10-17 기준)');
 });
 
-test('최저가: 오늘 딜이 기록 최저가 이하일 때만, 날짜는 그 딜의 seenAt(KST)', () => {
-  const suffix = ' 최저가 (2026-10-14 기준, 우리 기록)';
-  // 기록 최저가와 같은 가격 → 표시(이하). seenAt 2026-10-13T16:00Z = KST 10-14
-  const eq = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 19300 })],
-    history: [H('n', 19300, '2026-10-13T16:00:00Z'), H('o', 19300, '2026-10-01T07:00:00+09:00')] });
-  assert.equal(titleOf(eq), `팬히터 비교${suffix}`);
-  assert.equal(h1Of(eq), `팬히터 비교${suffix}`);
-  assert.equal(descOf(eq), `팬히터 비교${suffix} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`);
-  // 오늘 딜 여러 개면 가장 싼 딜 기준
-  const multi = renderPage({ ...R, today: [deal('a', '팬히터 a', { salePrice: 50000 }), deal('b', '팬히터 b', { salePrice: 9000 })],
-    history: [H('a', 50000, '2026-10-15T07:33:00+09:00'), H('b', 9000, '2026-10-14T07:33:00+09:00'), H('o', 10000, '2026-10-01T07:00:00+09:00')] });
-  assert.equal(titleOf(multi), `팬히터 비교${suffix}`);
-  // 1원이라도 비싸면 없음
-  const above = renderPage({ ...R, today: [deal('n', '팬히터 n', { salePrice: 19301 })],
-    history: [H('n', 19301, '2026-10-14T07:33:00+09:00'), H('o', 19300, '2026-10-01T07:00:00+09:00')] });
-  assert.doesNotMatch(above, /최저가/);
-  // 기록에서 밀려난 딜의 누적 최저가(minSalePrice)도 반영
-  const evicted = renderPage({ ...R, minSalePrice: 15000, today: [deal('n', '팬히터 n', { salePrice: 19300 })],
-    history: [H('n', 19300, '2026-10-14T07:33:00+09:00')] });
-  assert.doesNotMatch(titleOf(evicted), /최저가/);
-});
-
-test('최저가: buildAll — 첫 딜·더 싼 딜이면 표시, 더 비싼 딜이면 없음, 누적 최저가는 state에 남는다', () => {
+test('buildAll: 가격이 바뀌어도 제목은 갱신일 기준만, 누적 최저가 기록은 state에 남는다', () => {
   const root = site([deal('fh1', '팬히터 A', { salePrice: 20000 })], '2026-10-15T07:33:00+09:00');
   buildAll({ root, now: D1 });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 최저가 (2026-10-15 기준, 우리 기록)');
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 가격 비교 (2026-10-15 기준)');
   setDeals(root, [deal('fh2', '팬히터 B', { salePrice: 25000 })], '2026-10-16T07:30:00+09:00');
   buildAll({ root, now: D2 });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교');
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 가격 비교 (2026-10-16 기준)');
   setDeals(root, [deal('fh3', '팬히터 C', { salePrice: 18000 })], '2026-10-17T07:30:00+09:00');
   buildAll({ root, now: new Date('2026-10-17T00:00:00Z') });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교 최저가 (2026-10-17 기준, 우리 기록)');
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 가격 비교 (2026-10-17 기준)');
+  assert.doesNotMatch(page(root, '팬히터'), /최저|가장 낮은 가격/);
   assert.equal(readState(root).items['팬히터'].minSalePrice, 18000);
   rmSync(root, { recursive: true });
 });
 
-test('최저가 회귀: 기록 10,000원 딜이 같은 URL로 20,000원에 다시 나와도 최저가 아님(첫 실행 누적값 없음)', () => {
+test('누적 최저가 기록 회귀: 예전 state(minSalePrice 없음)에서 같은 URL 가격이 올라도 기록 10,000원 유지, 제목엔 가격 주장 없음', () => {
   const root = site([deal('fh1', '신일 팬히터', { salePrice: 20000 })], '2026-10-16T07:30:00+09:00');
   // 예전 state: minSalePrice 필드 없이 기록만 있음
   mkdirSync(join(root, 'state'));
@@ -424,8 +412,8 @@ test('최저가 회귀: 기록 10,000원 딜이 같은 URL로 20,000원에 다�
     { title: '신일 팬히터', url: 'https://link.coupang.com/a/fh1', salePrice: 10000, originalPrice: 30000, image: '', seenAt: '2026-10-10T07:30:00+09:00' },
   ] } } }));
   buildAll({ root, now: D2 });
-  assert.equal(titleOf(page(root, '팬히터')), '팬히터 비교');
-  assert.doesNotMatch(page(root, '팬히터'), /최저가/);
+  assert.equal(titleOf(page(root, '팬히터')), '팬히터 가격 비교 (2026-10-16 기준)');
+  assert.doesNotMatch(page(root, '팬히터'), /가장 낮은 가격|최저가/);
   const rec = readState(root).items['팬히터'];
   assert.equal(rec.minSalePrice, 10000);
   assert.deepEqual(rec.deals.map(d => d.salePrice), [20000]);
@@ -524,7 +512,7 @@ test('헤더·푸터: 메인 index.html과 같은 마크업(경로만 절대경�
 test('끝난 딜 배너: h1 바로 아래 큰 배너 하나, 작은 회색 배지 없음, 오늘 딜·준비 중 페이지엔 없음', () => {
   const BANNER = '<p class="ended-banner" role="status">끝난 딜이에요</p>';
   const ended = renderPage({ ...R, today: [], history: [H('last', 19300, '2026-10-14T07:33:00+09:00')] });
-  assert.ok(ended.includes(`<h1>팬히터 비교</h1>\n    ${BANNER}\n`));
+  assert.ok(ended.includes(`<h1>팬히터 가격 비교 (2026-10-15 기준)</h1>\n    ${BANNER}\n`));
   assert.equal(ended.split(BANNER).length - 1, 1);
   assert.doesNotMatch(ended, /class="tag ended"/);
   // 나머지는 그대로: 기록 가격·지금 가격 버튼
@@ -573,7 +561,7 @@ test('끝난 딜 → 새 딜: 같은 URL에서 다시 오늘 딜로, 끝난 딜 
   assert.doesNotMatch(html, /끝난 딜/);
   assert.match(html, /오늘의 팬히터 핫딜 1개/);
   assert.match(html, /href="https:\/\/link\.coupang\.com\/a\/fh2"[^>]*>쿠팡에서 지금 가격 보기</);
-  assert.equal(titleOf(html), '팬히터 비교'); // 25,000원 > 기록 최저가 19,300원
+  assert.equal(titleOf(html), '팬히터 가격 비교 (2026-10-17 기준)');
   assert.ok(html.includes(`<link rel="canonical" href="${FH}">`));
   assert.deepEqual(readState(root).items['팬히터'].deals.map(d => d.url), ['https://link.coupang.com/a/fh2', 'https://link.coupang.com/a/fh1']);
   assert.match(sitemapOf(root), new RegExp(`<loc>${FH}</loc><lastmod>2026-10-17</lastmod>`));
@@ -623,7 +611,7 @@ test('h1: 품목 페이지마다 h1은 "{품목} 비교" 하나뿐, 로고는 h1
   for (const html of pages) {
     const h1s = [...html.matchAll(/<h1[\s>][\s\S]*?<\/h1>/g)].map(m => m[0]);
     assert.equal(h1s.length, 1);
-    assert.match(h1s[0], /^<h1>팬히터 비교( 최저가 \(\d{4}-\d{2}-\d{2} 기준, 우리 기록\))?<\/h1>$/);
+    assert.match(h1s[0], /^<h1>팬히터 가격 비교 \(\d{4}-\d{2}-\d{2} 기준\)<\/h1>$/);
     assert.doesNotMatch(html, /logo-h1/);
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
     assert.doesNotMatch(header, /<h1/);
@@ -682,4 +670,47 @@ test('비슷한 핫딜: 같은 카테고리 딜이 없으면 섹션을 생략하
   for (const html of [renderPage({ ...R, today: [], history: [h] }), renderPage({ ...R, today: [], history: [] })]) {
     assert.doesNotMatch(html, /비슷한 핫딜|고르는 방법|고르는 기준|품목별 핫딜|class="chip"/);
   }
+});
+
+test('설명 블록: 비교표·자료 요약(출처 링크)·공식 영상은 데이터가 있을 때만, 출처 없는 요약은 그리지 않음', async () => {
+  const { renderGuide } = await import('../scripts/build-item-pages.mjs');
+  assert.equal(renderGuide({ keyword: 'x' }), '');
+  assert.equal(renderGuide({ keyword: 'x', review: { points: ['a'], sources: [] } }), '');
+  const html = renderGuide({ keyword: 'x',
+    compare: { columns: ['기준', 'A'], rows: [['먼지', '<b>']] },
+    review: { points: ['요약'], sources: [{ title: 't', url: 'https://example.org/a' }, { title: 'bad', url: 'javascript:alert(1)' }] },
+    youtube: { id: 'abcdefghijk', title: 'v', channel: 'c' } });
+  assert.match(html, /<table class="cmp">/);
+  assert.match(html, /&lt;b&gt;/);
+  assert.match(html, /href="https:\/\/example.org\/a"/);
+  assert.doesNotMatch(html, /javascript:/);
+  assert.match(html, /youtube-nocookie\.com\/embed\/abcdefghijk/);
+});
+
+test('설정의 새 품목 3개: 비교표+출처 있는 요약, 금지 문구 없음, 페이지 간 문장 중복 없음', () => {
+  const { items } = JSON.parse(readFileSync(new URL('../data/item-pages.json', import.meta.url), 'utf8'));
+  const picked = items.filter(i => ['고양이모래', '캡슐세제', '부스터카시트'].includes(i.slug));
+  assert.equal(picked.length, 3);
+  const seen = new Set();
+  for (const i of picked) {
+    assert.ok(i.compare?.rows?.length >= 3, i.slug);
+    assert.ok(i.review?.points?.length >= 3 && i.review.sources.every(s => s.url.startsWith('https://')), i.slug);
+    const text = JSON.stringify(i);
+    assert.doesNotMatch(text, /최저가|가장 낮은 가격|coupangcdn|thumbnail/);
+    for (const s of [...i.review.points, ...i.compare.rows.flat(), i.compare.heading, i.review.heading]) {
+      assert.ok(!seen.has(s), `중복 문장: ${s}`); seen.add(s);
+    }
+  }
+});
+
+test('품목 페이지에는 할인율(-NN%, NN% 할인)이 나오지 않고 가격·날짜는 남는다', () => {
+  const root = site([deal('fh1', '신일 팬히터 SFH-1'), deal('fh2', '한일 팬히터 HF-2', { originalPrice: 50000, salePrice: 20000 })]);
+  buildAll({ root, now: D1 });
+  const html = page(root, '팬히터');
+  assert.doesNotMatch(html, /-\d{1,3}%/);
+  assert.doesNotMatch(html, /\d+% 할인/);
+  assert.doesNotMatch(html, /rel-pct|class="badge"/);
+  assert.match(html, /<b>19,300원<\/b>/);
+  assert.match(html, /<s>30,000원<\/s>/);
+  assert.match(html, /2026-10-15 기준/);
 });
