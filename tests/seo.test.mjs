@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { ORIGIN, pageUrl, NOINDEX_META, sitemapLastmods, buildSitemap } from '../scripts/build-item-pages.mjs';
+import { ORIGIN, pageUrl, NOINDEX_META, sitemapLastmods, buildSitemap, coreLastmods, renderPage, lowestNow } from '../scripts/build-item-pages.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = rel => readFileSync(join(ROOT, rel), 'utf8');
@@ -86,4 +86,61 @@ test('buildSitemap: 빠진 홈·about·privacy를 다시 넣고 빈 lastmod는 �
     [`${ORIGIN}/`, '2026-10-22'], [`${ORIGIN}/about.html`, '2026-10-22'], [`${ORIGIN}/privacy.html`, '2026-10-22'],
     [pageUrl('팬히터'), '2026-10-22'],
   ]);
+});
+
+test('coreLastmods: 첫 실행은 기존 사이트맵 날짜, 없으면 오늘', () => {
+  const r = coreLastmods(undefined, { 'index.html': 'h1', 'about.html': 'h2' }, { 'index.html': '2026-10-01' }, '2026-10-22');
+  assert.deepEqual(r, { 'index.html': { hash: 'h1', lastmod: '2026-10-01' }, 'about.html': { hash: 'h2', lastmod: '2026-10-22' } });
+});
+
+test('coreLastmods: 해시가 같으면 저장된 날짜 → 사이트맵 날짜 → 오늘', () => {
+  const prev = { 'index.html': { hash: 'h1', lastmod: '2026-10-05' }, 'about.html': { hash: 'h2' }, 'privacy.html': { hash: 'h3' } };
+  const r = coreLastmods(prev, { 'index.html': 'h1', 'about.html': 'h2', 'privacy.html': 'h3' }, { 'index.html': '2026-10-01', 'about.html': '2026-10-02' }, '2026-10-22');
+  assert.deepEqual(r, {
+    'index.html': { hash: 'h1', lastmod: '2026-10-05' },
+    'about.html': { hash: 'h2', lastmod: '2026-10-02' },
+    'privacy.html': { hash: 'h3', lastmod: '2026-10-22' },
+  });
+});
+
+test('coreLastmods: 해시가 바뀌면 오늘', () => {
+  const r = coreLastmods({ 'index.html': { hash: 'old', lastmod: '2026-10-05' } }, { 'index.html': 'new' }, { 'index.html': '2026-10-01' }, '2026-10-22');
+  assert.deepEqual(r, { 'index.html': { hash: 'new', lastmod: '2026-10-22' } });
+});
+
+test('coreLastmods: 입력을 바꾸지 않는다', () => {
+  const prev = { 'index.html': { hash: 'old', lastmod: '2026-10-05' } };
+  const hashes = { 'index.html': 'new', 'about.html': 'h2' };
+  const existing = { 'index.html': '2026-10-01' };
+  const snap = JSON.stringify([prev, hashes, existing]);
+  const r = coreLastmods(prev, hashes, existing, '2026-10-22');
+  assert.equal(JSON.stringify([prev, hashes, existing]), snap);
+  assert.notEqual(r['index.html'], prev['index.html']);
+});
+
+test('buildSitemap: 고정 페이지 lastmod 덮어쓰기(기존·새로 넣은 항목 모두, 다른 필드 유지)', () => {
+  const xml = `<urlset><url><loc>${ORIGIN}/</loc><lastmod>2026-10-01</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`
+    + `<url><loc>${ORIGIN}/extra.html</loc><lastmod>2026-09-01</lastmod></url></urlset>`;
+  const deal = [{ loc: pageUrl('팬히터'), lastmod: '2026-10-20' }];
+  const override = new Map([[`${ORIGIN}/`, '2026-10-15'], [`${ORIGIN}/privacy.html`, '2026-10-10']]);
+  const out = buildSitemap(xml, deal, '2026-10-22', override);
+  assert.deepEqual([...sitemapLastmods(out)], [
+    [`${ORIGIN}/`, '2026-10-15'], [`${ORIGIN}/about.html`, '2026-10-22'], [`${ORIGIN}/privacy.html`, '2026-10-10'],
+    [`${ORIGIN}/extra.html`, '2026-09-01'], [pageUrl('팬히터'), '2026-10-20'],
+  ]);
+  assert.ok(out.includes(`<url><loc>${ORIGIN}/</loc><lastmod>2026-10-15</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>`));
+  assert.ok(out.includes(`<url><loc>${ORIGIN}/privacy.html</loc><lastmod>2026-10-10</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>`));
+  // 4번째 인자가 없으면 기존 동작 그대로
+  assert.equal(sitemapLastmods(buildSitemap(xml, deal, '2026-10-22')).get(`${ORIGIN}/`), '2026-10-01');
+});
+
+test('품목 페이지: 기록 하한가 이하 딜이면 "기록된 가격" 문구, "최저가"는 없음', () => {
+  const item = { slug: '팬히터', keyword: '팬히터', category: '가전·디지털', match: ['팬히터'] };
+  const d = { title: '신일 팬히터', salePrice: 19300, originalPrice: 30000, image: '', url: 'https://link.coupang.com/a/fh1', seenAt: '2026-10-13T16:00:00Z' };
+  const args = { item, items: [item], today: [d], history: [d], updatedAt: '2026-10-13T16:00:00Z', minSalePrice: 19300 };
+  assert.ok(lowestNow(args)); // 문구가 붙는 조건
+  const html = renderPage(args);
+  assert.ok(html.includes('<title>팬히터 비교 기록된 가격 (2026-10-14 기준)</title>'));
+  assert.ok(html.includes('기록된 가격'));
+  assert.ok(!html.includes('최저가'));
 });

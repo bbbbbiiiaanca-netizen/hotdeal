@@ -6,12 +6,13 @@
  * 사용: node scripts/build-item-pages.mjs [--indexnow] [--dry-run]
  *   --indexnow  제출 대기 URL(바뀐 페이지 누적)을 scripts/indexnow-submit.mjs로 제출, 성공하면 대기 목록을 비운다
  *   --dry-run   --indexnow와 함께 쓰면 제출 직전까지만 확인(indexnow-submit.mjs --dry-run). 대기 목록은 그대로 둔다
- * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 페이지 마지막 변경일)
+ * 상태(깃에 커밋): state/item-history.json (품목별 최근 딜 10개, 페이지 마지막 변경일, core: 고정 페이지 해시·lastmod)
  *                  state/indexnow-pending.json (아직 제출하지 못한 URL)
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -163,7 +164,7 @@ function relatedCard({ deal: d, page }) {
     </a></article>`;
 }
 
-/** 기록 최저가: 이전 누적 최저가(prevMin)와 지금 기록(history) 중 가장 낮은 salePrice. 기록이 없으면 null */
+/** 기록 하한가: 이전 누적값(prevMin)과 지금 기록(history) 중 가장 낮은 salePrice. 기록이 없으면 null */
 export function recordMin(history, prevMin) {
   const prices = (history ?? []).map(d => d.salePrice).filter(n => n > 0);
   if (prevMin > 0) prices.push(prevMin);
@@ -171,7 +172,7 @@ export function recordMin(history, prevMin) {
 }
 
 /**
- * 오늘 딜 중 가장 싼 것이 기록 최저가 이하면 { price, date }(date = 그 딜의 seenAt, KST 날짜), 아니면 null.
+ * 오늘 딜 중 가장 싼 것이 기록 하한가(recordMin) 이하면 { price, date }(date = 그 딜의 seenAt, KST 날짜), 아니면 null.
  * 오늘 딜은 이미 기록에 합쳐져 있으므로 "이하" 비교가 곧 "기록상 가장 싸다"가 된다.
  */
 export function lowestNow({ today, history, minSalePrice, updatedAt }) {
@@ -204,12 +205,12 @@ function endedBody(item, history) {
  * 헤더·푸터는 index.html과 같은 마크업(경로만 /로 시작). 쿠팡 파트너스 고지문은 푸터에 한 번만.
  * MY 버튼은 assets/my.js만 싣는다(설정은 이 브라우저에 저장돼 메인 추천에 반영). app.js는 #q·#sort와
  * 상대경로 deals.json을 전제해 품목 페이지에선 오류가 나므로 싣지 않는다.
- * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 최저가 이하일 때만 ' 최저가 (YYYY-MM-DD 기준, 우리 기록)'을 붙인다.
+ * 제목·h1·설명은 '{품목} 비교'. 오늘 딜이 기록 하한가(recordMin) 이하일 때만 ' 기록된 가격 (YYYY-MM-DD 기준)'을 붙인다.
  */
 export function renderPage({ item, items, today, history, updatedAt, minSalePrice, related = [] }) {
   const kw = item.keyword;
   const low = lowestNow({ today, history, minSalePrice, updatedAt });
-  const title = `${kw} 비교${low ? ` 최저가 (${low.date} 기준, 우리 기록)` : ''}`;
+  const title = `${kw} 비교${low ? ` 기록된 가격 (${low.date} 기준)` : ''}`;
   const desc = `${title} | 오늘의 쿠팡 핫딜·특가 모음, 핫딜 오이데`;
   const canonical = pageUrl(item.slug);
   const t = updatedAt ? kst(updatedAt) : null;
@@ -306,19 +307,50 @@ export const CORE_PAGES = [
 const fillLastmod = (u, fallback) => /<lastmod>\s*\S[^<]*<\/lastmod>/.test(u) ? u
   : u.replace(/<lastmod>[^<]*<\/lastmod>/, '').replace(/<\/loc>/, `</loc><lastmod>${fallback}</lastmod>`);
 
+/** 고정 페이지 파일(저장소 기준 경로) → 사이트맵 URL */
+export const CORE_FILES = { 'index.html': `${ORIGIN}/`, 'about.html': `${ORIGIN}/about.html`, 'privacy.html': `${ORIGIN}/privacy.html` };
+
+/**
+ * 고정 페이지 lastmod. 모두 파일 경로 키. prevCore = { 'index.html': { hash, lastmod } }(state.core),
+ * hashes = { 'index.html': sha256 }, existingLastmods = { 'index.html': 사이트맵 lastmod }.
+ * 이전 해시 없음 → 사이트맵 날짜(없으면 today), 해시 같음 → 저장된 날짜 → 사이트맵 날짜 → today, 해시 다름 → today.
+ * 입력은 바꾸지 않고 새 { 경로: { hash, lastmod } }를 돌려준다.
+ */
+export function coreLastmods(prevCore, hashes, existingLastmods, today) {
+  const out = {};
+  for (const [file, hash] of Object.entries(hashes ?? {})) {
+    const prev = prevCore?.[file];
+    const existing = existingLastmods?.[file] || '';
+    let lastmod;
+    if (!prev?.hash) lastmod = existing || today;
+    else if (prev.hash === hash) lastmod = prev.lastmod || existing || today;
+    else lastmod = today;
+    out[file] = { hash, lastmod };
+  }
+  return out;
+}
+
+const setLastmod = (u, lastmod) => /<lastmod>[^<]*<\/lastmod>/.test(u)
+  ? u.replace(/<lastmod>[^<]*<\/lastmod>/, `<lastmod>${lastmod}</lastmod>`)
+  : u.replace(/<\/loc>/, `</loc><lastmod>${lastmod}</lastmod>`);
+
 /**
  * 기존 사이트맵에서 /deal/ 이 아닌 항목은 그대로 두고, 품목 페이지 항목을 다시 만든다.
  * 홈·about·privacy가 빠졌으면 다시 넣고, lastmod가 비면 today(KST)로 채운다.
+ * coreLastmod(URL → 날짜, Map 또는 객체)를 주면 고정 페이지 항목의 lastmod만 그 값으로 바꾼다(다른 필드는 그대로).
  */
-export function buildSitemap(existingXml, dealEntries, today = kstDate(new Date())) {
+export function buildSitemap(existingXml, dealEntries, today = kstDate(new Date()), coreLastmod) {
   const kept = (existingXml.match(/<url>[\s\S]*?<\/url>/g) ?? [])
     .filter(u => !/<loc>[^<]*\/deal\//.test(u))
     .map(u => fillLastmod(u.trim(), today));
   const locOf = u => unesc(u.match(/<loc>\s*([^<]*?)\s*<\/loc>/)?.[1] ?? '');
+  const override = loc => coreLastmod instanceof Map ? coreLastmod.get(loc) : coreLastmod?.[loc];
   const lines = [];
   for (const c of CORE_PAGES) {
     const hit = kept.find(u => locOf(u) === c.loc);
-    lines.push(`  ${hit ?? `<url><loc>${esc(c.loc)}</loc><lastmod>${today}</lastmod><changefreq>${c.changefreq}</changefreq><priority>${c.priority}</priority></url>`}`);
+    const u = hit ?? `<url><loc>${esc(c.loc)}</loc><lastmod>${today}</lastmod><changefreq>${c.changefreq}</changefreq><priority>${c.priority}</priority></url>`;
+    const lm = override(c.loc);
+    lines.push(`  ${lm ? setLastmod(u, lm) : u}`);
   }
   const core = new Set(CORE_PAGES.map(c => c.loc));
   for (const u of kept) if (!core.has(locOf(u))) lines.push(`  ${u}`);
@@ -423,7 +455,18 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
     if (noindexOnDisk(root, slug)) { noindex.add(loc); continue; }
     entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || today });
   }
-  writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries, today));
+  // 고정 페이지 lastmod: 원본 바이트 sha256이 바뀐 날만 오늘로 (없는 파일은 건너뜀)
+  const hashes = {};
+  const existingCore = {};
+  for (const [file, loc] of Object.entries(CORE_FILES)) {
+    let buf;
+    try { buf = fs.readFileSync(path.join(root, file)); } catch { continue; }
+    hashes[file] = createHash('sha256').update(buf).digest('hex');
+    existingCore[file] = oldLastmod.get(loc) || '';
+  }
+  state.core = coreLastmods(state.core, hashes, existingCore, today);
+  const coreOverride = new Map(Object.entries(state.core).map(([file, c]) => [CORE_FILES[file], c.lastmod]));
+  writeIfChanged(sitemapFile, buildSitemap(oldSitemap, entries, today, coreOverride));
   writeIfChanged(stateFile, JSON.stringify(state, null, 2) + '\n');
   const pending = readPending(root);
   const nextPending = [...new Set([...pending, ...changed])].filter(u => !noindex.has(u));
