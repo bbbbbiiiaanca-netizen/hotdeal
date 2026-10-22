@@ -330,6 +330,27 @@ export function coreLastmods(prevCore, hashes, existingLastmods, today) {
   return out;
 }
 
+/** 홈 해시에 넣는 상품 필드(이 외의 필드·최상위 updatedAt/notice 등은 바뀌어도 홈 lastmod를 올리지 않는다) */
+const HOME_DEAL_KEYS = ['id', 'title', 'category', 'originalPrice', 'salePrice', 'image', 'emoji', 'url', 'top', 'addedAt'];
+
+/** 객체 키를 재귀적으로 정렬한 JSON(배열 순서는 그대로) */
+const stableJson = v => Array.isArray(v) ? `[${v.map(stableJson).join(',')}]`
+  : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(',')}}`
+  : JSON.stringify(v) ?? 'null';
+
+/**
+ * 홈 lastmod용 해시 = sha256(index.html 바이트 + 상품 허용 필드만 남긴 deals의 안정 JSON).
+ * 홈은 deals.json을 읽어 그리므로 상품이 바뀌면 lastmod도 바뀌어야 한다. 입력은 바꾸지 않는다.
+ */
+export function homeContentHash(indexBuf, dealsData) {
+  const deals = (dealsData?.deals ?? []).map(d => {
+    const o = {};
+    for (const k of HOME_DEAL_KEYS) if (d && Object.hasOwn(d, k)) o[k] = d[k];
+    return o;
+  });
+  return createHash('sha256').update(indexBuf).update(stableJson({ deals })).digest('hex');
+}
+
 const setLastmod = (u, lastmod) => /<lastmod>[^<]*<\/lastmod>/.test(u)
   ? u.replace(/<lastmod>[^<]*<\/lastmod>/, `<lastmod>${lastmod}</lastmod>`)
   : u.replace(/<\/loc>/, `</loc><lastmod>${lastmod}</lastmod>`);
@@ -455,13 +476,14 @@ export function buildAll({ root = ROOT, now = new Date() } = {}) {
     if (noindexOnDisk(root, slug)) { noindex.add(loc); continue; }
     entries.push({ loc, lastmod: state.items[slug]?.lastmod || oldLastmod.get(loc) || today });
   }
-  // 고정 페이지 lastmod: 원본 바이트 sha256이 바뀐 날만 오늘로 (없는 파일은 건너뜀)
+  // 고정 페이지 lastmod: 해시가 바뀐 날만 오늘로 (없는 파일은 건너뜀)
+  // 홈은 원본 바이트 + 상품 데이터, about·privacy는 원본 바이트 sha256
   const hashes = {};
   const existingCore = {};
   for (const [file, loc] of Object.entries(CORE_FILES)) {
     let buf;
     try { buf = fs.readFileSync(path.join(root, file)); } catch { continue; }
-    hashes[file] = createHash('sha256').update(buf).digest('hex');
+    hashes[file] = file === 'index.html' ? homeContentHash(buf, data) : createHash('sha256').update(buf).digest('hex');
     existingCore[file] = oldLastmod.get(loc) || '';
   }
   state.core = coreLastmods(state.core, hashes, existingCore, today);

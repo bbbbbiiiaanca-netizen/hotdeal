@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { ORIGIN, pageUrl, NOINDEX_META, sitemapLastmods, buildSitemap, coreLastmods, renderPage, lowestNow } from '../scripts/build-item-pages.mjs';
+import { tmpdir } from 'node:os';
+import { ORIGIN, pageUrl, NOINDEX_META, sitemapLastmods, buildSitemap, coreLastmods, renderPage, lowestNow, homeContentHash, buildAll } from '../scripts/build-item-pages.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = rel => readFileSync(join(ROOT, rel), 'utf8');
@@ -143,4 +144,77 @@ test('품목 페이지: 기록 하한가 이하 딜이면 "기록된 가격" 문
   assert.ok(html.includes('<title>팬히터 비교 기록된 가격 (2026-10-14 기준)</title>'));
   assert.ok(html.includes('기록된 가격'));
   assert.ok(!html.includes('최저가'));
+});
+
+const HOME_BUF = Buffer.from('<!doctype html><title>홈</title>');
+const P1 = { id: 'a1', title: '신일 팬히터', category: '가전·디지털', originalPrice: 30000, salePrice: 19300, image: 'https://img.example/a1.jpg', emoji: '🔥', url: 'https://link.coupang.com/a/a1', top: true, addedAt: '2026-10-15' };
+const P2 = { id: 'b2', title: '삼성 QLED', salePrice: 500000, url: 'https://link.coupang.com/a/b2' };
+const dealsOf = (deals, extra = {}) => ({ updatedAt: '2026-10-15T07:33:00+09:00', notice: '공지', deals, ...extra });
+
+test('homeContentHash: 키 순서·제외 필드(updatedAt·notice·isSample·rocket)가 달라도 같은 해시', () => {
+  const h = homeContentHash(HOME_BUF, dealsOf([P1, P2]));
+  const reordered = Object.fromEntries(Object.entries(P1).reverse());
+  assert.equal(homeContentHash(HOME_BUF, { notice: '공지', deals: [reordered, P2] }), h);
+  assert.equal(homeContentHash(HOME_BUF, dealsOf([P1, P2], { updatedAt: '2026-10-16T07:33:00+09:00', notice: '다른 공지', isSample: true })), h);
+  assert.equal(homeContentHash(HOME_BUF, dealsOf([{ ...P1, rocket: true }, { ...P2, rocket: false }])), h);
+});
+
+test('homeContentHash: 가격·상품 추가/삭제·순서·index 바이트가 바뀌면 다른 해시', () => {
+  const h = homeContentHash(HOME_BUF, dealsOf([P1, P2]));
+  assert.notEqual(homeContentHash(HOME_BUF, dealsOf([{ ...P1, salePrice: 19000 }, P2])), h);
+  assert.notEqual(homeContentHash(HOME_BUF, dealsOf([P1, P2, { ...P2, id: 'c3' }])), h);
+  assert.notEqual(homeContentHash(HOME_BUF, dealsOf([P1])), h);
+  assert.notEqual(homeContentHash(HOME_BUF, dealsOf([P2, P1])), h);
+  assert.notEqual(homeContentHash(Buffer.from('<!doctype html><title>홈!</title>'), dealsOf([P1, P2])), h);
+});
+
+test('homeContentHash: deals가 없으면 [] 와 같다', () => {
+  const empty = homeContentHash(HOME_BUF, { deals: [] });
+  assert.equal(homeContentHash(HOME_BUF, {}), empty);
+  assert.equal(homeContentHash(HOME_BUF, { updatedAt: 'x' }), empty);
+  assert.equal(homeContentHash(HOME_BUF, undefined), empty);
+});
+
+test('homeContentHash: 입력을 바꾸지 않는다', () => {
+  const data = dealsOf([{ ...P1, rocket: true }, P2]);
+  const buf = Buffer.from(HOME_BUF);
+  const snap = JSON.stringify(data);
+  homeContentHash(buf, data);
+  assert.equal(JSON.stringify(data), snap);
+  assert.ok(buf.equals(HOME_BUF));
+});
+
+test('buildAll: 상품이 바뀐 날만 홈 lastmod가 오늘, about·privacy는 그대로', () => {
+  const root = mkdtempSync(join(tmpdir(), 'seo-home-'));
+  try {
+    mkdirSync(join(root, 'data'));
+    writeFileSync(join(root, 'data', 'item-pages.json'), JSON.stringify({ items: [{ slug: '팬히터', keyword: '팬히터', match: ['팬히터'], category: '가전·디지털' }] }));
+    writeFileSync(join(root, 'sitemap.xml'), buildSitemap('', [], '2026-10-11'));
+    for (const f of ['index.html', 'about.html', 'privacy.html']) writeFileSync(join(root, f), `<!doctype html><title>${f}</title>`);
+    const setDeals = data => writeFileSync(join(root, 'deals.json'), JSON.stringify(data));
+    const core = () => {
+      const m = sitemapLastmods(readFileSync(join(root, 'sitemap.xml'), 'utf8'));
+      return [m.get(`${ORIGIN}/`), m.get(`${ORIGIN}/about.html`), m.get(`${ORIGIN}/privacy.html`)];
+    };
+
+    setDeals(dealsOf([P1, P2]));
+    buildAll({ root, now: new Date('2026-10-15T00:00:00Z') });
+    assert.deepEqual(core(), ['2026-10-11', '2026-10-11', '2026-10-11']);
+
+    // 상품 그대로, updatedAt·notice·rocket만 바뀜 → 그대로
+    setDeals(dealsOf([{ ...P1, rocket: true }, P2], { updatedAt: '2026-10-16T07:33:00+09:00', notice: '새 공지' }));
+    buildAll({ root, now: new Date('2026-10-16T00:00:00Z') });
+    assert.deepEqual(core(), ['2026-10-11', '2026-10-11', '2026-10-11']);
+
+    // 상품 가격이 바뀜 → 홈만 오늘
+    setDeals(dealsOf([{ ...P1, salePrice: 18000 }, P2], { updatedAt: '2026-10-17T07:33:00+09:00' }));
+    buildAll({ root, now: new Date('2026-10-17T00:00:00Z') });
+    assert.deepEqual(core(), ['2026-10-17', '2026-10-11', '2026-10-11']);
+
+    // 다음 날 변화 없음 → 유지
+    buildAll({ root, now: new Date('2026-10-18T00:00:00Z') });
+    assert.deepEqual(core(), ['2026-10-17', '2026-10-11', '2026-10-11']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
